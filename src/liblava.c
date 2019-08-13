@@ -1,4 +1,5 @@
 #include <vulkan/vulkan.h>
+#include <sys/stat.h>
 
 struct lava_config
 {
@@ -23,6 +24,8 @@ struct lava_queue
 	float priority;
 };
 
+typedef struct lava_queue lava_queue_t;
+
 struct lava_image_set
 {
 	VkImage  *images;
@@ -31,7 +34,13 @@ struct lava_image_set
 
 typedef struct lava_image_set lava_image_set_t;
 
-typedef struct lava_queue lava_queue_t;
+struct lava_shader
+{
+	char   *data;
+	size_t  size;
+};
+
+typedef struct lava_shader lava_shader_t;
 
 struct lava_state
 {
@@ -549,3 +558,61 @@ int lava_logical_device_create(VkDevice *ldevice, VkPhysicalDevice *pdevice,
 	return gqueue->queue != VK_NULL_HANDLE && pqueue->queue != VK_NULL_HANDLE;
 }
 
+int lava_load_shader_spv(const char* path, lava_shader_t *shader)
+{
+	// Try to open file for reading
+	FILE *file = fopen(path, "rb");
+	if (file == NULL)
+	{
+		return 0;
+	}
+
+	// Try to query file information
+	struct stat st;
+	if (stat(path, &st) == -1)
+	{
+		return 0;
+	}
+
+	// Try to allocate memory for shader data
+	shader->data = malloc(sizeof(char) * st.st_size); // TODO needs a free somewhere
+	if (shader->data == NULL)
+	{
+		return 0;
+	}
+
+	// Number of bytes read different from the shader's file size
+	if (fread(shader->data, 1, st.st_size, file) != st.st_size)
+	{
+		return 0;
+	}
+	
+	return 1; 
+}
+
+int lava_shader_module_create(VkDevice ldevice, lava_shader_t *shader, VkShaderModule *shader_module)
+{
+	VkShaderModuleCreateInfo info = { 0 };
+	info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	info.codeSize = shader->size;
+	info.pCode = (uint32_t *) shader->data;
+
+	return (vkCreateShaderModule(ldevice, &info, NULL, shader_module) == VK_SUCCESS);
+}
+
+int lava_shader_stage_create(VkShaderModule *vert_shader_module, VkShaderModule *frag_shader_module)
+{
+	VkPipelineShaderStageCreateInfo vert_info = { 0 };
+	vert_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	vert_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	vert_info.module = vert_shader_module;
+	vert_info.pName = "main";
+
+	VkPipelineShaderStageCreateInfo frag_info = { 0 };
+	frag_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	frag_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	frag_info.module = frag_shader_module;
+	frag_info.pName = "main";
+
+	// TODO ??? we're not doing anything with that shizzle yet lul
+}

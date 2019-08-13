@@ -26,7 +26,25 @@ struct lava
 	VkSwapchainKHR          swapchain;
 	lava_image_set_t        swapchain_images;
 	VkImageView             *imageviews;
+	lava_shader_t		vertex_shader;
+	lava_shader_t		fragment_shader;
 };
+
+int load_shaders(struct lava *lv)
+{
+	if (lava_load_shader_spv("./shaders/default.vert.spv", &lv->vertex_shader) == 0)
+	{
+		return 0;
+	}
+	
+	if (lava_load_shader_spv("./shaders/default.frag.spv", &lv->fragment_shader) == 0)
+	{
+		return 0;
+	}
+
+	return 1;
+	// TODO gotta free these motherflippers somewhere at some point lol
+}
 
 int create_glfw_window(struct lava *lv)
 {
@@ -216,6 +234,12 @@ int main()
 	if (create_swapchain_imageviews(&lv) == 0)
 	{
 		fprintf(stderr, "Could not create swapchain imageviews\n");
+		return EXIT_FAILURE;
+	}
+
+	if (load_shaders(&lv) == 0)
+	{
+		fprintf(stderr, "Failed loading shaders\n");
 		return EXIT_FAILURE;
 	}
 
