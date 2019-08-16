@@ -32,24 +32,12 @@ struct lv
 
 int load_shaders(struct lv *lv)
 {
-	/*
-	if (lv_load_shader_spv("./shaders/default.vert.spv", &lv->vertex_shader) == 0)
-	{
-		return 0;
-	}
-	
-	if (lv_load_shader_spv("./shaders/default.frag.spv", &lv->fragment_shader) == 0)
-	{
-		return 0;
-	}
-	*/
-
-	if (lv_shader_from_file_spv(lv->logical_device, "./shaders/default.vert.spv", &lv->vertex_shader) == 0)
+	if (lv_shader_from_file_spv(lv->logical_device, "./shaders/default.vert.spv", &lv->vertex_shader, LV_SHADER_VERT) == 0)
 	{
 		return 0;
 	}
 
-	if (lv_shader_from_file_spv(lv->logical_device, "./shaders/default.frag.spv", &lv->fragment_shader) == 0)
+	if (lv_shader_from_file_spv(lv->logical_device, "./shaders/default.frag.spv", &lv->fragment_shader, LV_SHADER_FRAG) == 0)
 	{
 		return 0;
 	}

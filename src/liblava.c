@@ -1,6 +1,10 @@
 #include <vulkan/vulkan.h>
 #include <sys/stat.h>
 
+//
+// STRUCTS, ENUMS
+//
+
 typedef struct lv_config
 {
 	int validation;
@@ -30,13 +34,13 @@ typedef struct lv_image_set lv_image_set_s;
 
 typedef enum lv_shader_type
 {
-	LV_NONE,	// type not specified or unknown
-	LV_VERT,	// vertex
-	LV_TESC,	// tessellation control
-	LV_TESE,	// tessellation evaluation
-	LV_GEOM,	// geometry
-	LV_FRAG,	// fragment
-	LV_COMP		// compute
+	LV_SHADER_NONE, // type not specified or unknown
+	LV_SHADER_VERT, // vertex
+	LV_SHADER_TESC, // tessellation control
+	LV_SHADER_TESE, // tessellation evaluation
+	LV_SHADER_GEOM, // geometry
+	LV_SHADER_FRAG, // fragment
+	LV_SHADER_COMP  // compute
 } lv_shader_type_e;
 
 typedef struct lv_shader
@@ -44,22 +48,24 @@ typedef struct lv_shader
 	uint32_t         *data;		// SPIR-V bytecode
 	size_t            size;		// size of bytecode
 	lv_shader_type_e  type;		// shader type (vertex, fragment, ...)
-	VkShaderModule   *module;	// vulkan shader module TODO make this a pointer so we can check against NULL?
+	VkShaderModule    module;	// vulkan shader module 
 } lv_shader_s;
 
 typedef struct lv_state
 {
 	lv_config_s      *config;
-	VkInstance        vk_instance;
-	VkPhysicalDevice  physical_device;
-	VkDevice          logical_device;
-	lv_queue_s       *graphics_queue;
-	lv_queue_s       *present_queue;
+	VkInstance        instance;
+	VkPhysicalDevice  pdevice;
+	VkDevice          ldevice;
+	lv_queue_s       *gqueue;
+	lv_queue_s       *pqueue;
 	VkSurfaceKHR      surface;
+	lv_shader_s      *vert_shader;
+	lv_shader_s      *frag_shader;
 } lv_state_s;
 
 //
-//
+// FUNCTIONS
 //
 
 lv_state_s *lv_init(lv_config_s *cfg)
@@ -614,22 +620,18 @@ int lv_shader_module_create(VkDevice ldevice, lv_shader_s *shader)
 	info.codeSize = shader->size;
 	info.pCode    = shader->data;
 
-	shader->module = malloc(sizeof(VkShaderModule)); // TODO this needs a free. also, we could avoid this by using a non-pointer member instead
-	VkResult lol = vkCreateShaderModule(ldevice, &info, NULL, shader->module);
-	if (lol == VK_ERROR_OUT_OF_HOST_MEMORY)
-	{
-		fprintf(stderr, "vkCreateShaderModule(): VK_ERROR_OUT_OF_HOST_MEMORY\n");
-	}
-
-	return lol == VK_SUCCESS;
+	return vkCreateShaderModule(ldevice, &info, NULL, &shader->module) == VK_SUCCESS;
 }
 
-int lv_shader_from_file_spv(VkDevice ldevice, const char *path, lv_shader_s *shader)
+int lv_shader_from_file_spv(VkDevice ldevice, const char *path, lv_shader_s *shader, lv_shader_type_e type)
 {
 	if (lv_load_shader_spv(path, shader) == 0)
 	{
 		return 0;
 	}
+
+	shader->type = type;
+
 	if (lv_shader_module_create(ldevice, shader) == 0)
 	{
 		return 0;
