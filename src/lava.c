@@ -88,48 +88,9 @@ int create_swapchain_imageviews(lv_state_s *lv)
 	return lv_create_swapchain_imageviews(lv->pdevice, lv->ldevice, lv->surface, &lv->swapchain_images, lv->imageviews);
 }
 
-int swapchain_adequate(VkPhysicalDevice device, VkSurfaceKHR surface)
-{
-	return lv_device_surface_format_count(device, surface) &&
-		lv_device_surface_present_mode_count(device, surface);
-}
-
 int select_vk_gpu(lv_state_s *lv)
 {
-	uint32_t device_count = 0;
-	vkEnumeratePhysicalDevices(lv->instance, &device_count, NULL);
-
-	if (device_count == 0)
-	{
-		return 0;
-	}
-
-	VkPhysicalDevice *devices = malloc(sizeof(VkPhysicalDevice) * device_count);
-	vkEnumeratePhysicalDevices(lv->instance, &device_count, devices);
-	int device_suitability = 0;
-	int graphics_queue_index = 0;
-	int present_queue_index = 0;
-
-	for (int i = 0; i < device_count; ++i)
-	{
-		int suitability        = lv_device_score(devices[i]);
-		int has_graphics_queue = lv_device_has_graphics_queue(devices[i], &graphics_queue_index);
-		int has_present_queue  = lv_device_has_present_queue(devices[i], lv->surface, &present_queue_index);
-		int supports_swapchain = lv_device_has_extension(devices[i], VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-		int chain_adequate     = supports_swapchain && swapchain_adequate(devices[i], lv->surface);
-
-		if (suitability > device_suitability && has_graphics_queue && has_present_queue && chain_adequate)
-		{
-			device_suitability = suitability;
-			lv->pdevice = devices[i];
-			lv->gqueue->index = graphics_queue_index;
-			lv->pqueue->index = present_queue_index;
-			break;
-		}
-	}
-
-	free(devices);
-	return lv->pdevice != VK_NULL_HANDLE;
+	lv_device_autoselect(lv);
 }
 
 int create_logical_device(lv_state_s *lv)

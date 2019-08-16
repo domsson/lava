@@ -551,6 +551,56 @@ int lv_device_score(VkPhysicalDevice device)
 	return 1;
 }
 
+int lv_swapchain_adequate(VkPhysicalDevice device, VkSurfaceKHR surface)
+{
+	return lv_device_surface_format_count(device, surface) &&
+		lv_device_surface_present_mode_count(device, surface);
+}
+
+int lv_device_autoselect(lv_state_s *lv)
+{
+	// check how many devices are avilable
+	uint32_t device_count = 0;
+	vkEnumeratePhysicalDevices(lv->instance, &device_count, NULL);
+
+	// fail early if no device available at all
+	if (device_count == 0)
+	{
+		return 0;
+	}
+	
+	// make room for information on all devices
+	VkPhysicalDevice *devices = malloc(sizeof(VkPhysicalDevice) * device_count);
+	vkEnumeratePhysicalDevices(lv->instance, &device_count, devices);
+
+	int device_score =  0;
+	int gqueue_index = -1;
+	int pqueue_index = -1;
+
+	// iterate all available devices to find the best one
+	for (int i = 0; i < device_count; ++i)
+	{
+		int score      = lv_device_score(devices[i]);
+		int has_gqueue = lv_device_has_graphics_queue(devices[i], &gqueue_index);
+		int has_pqueue = lv_device_has_present_queue(devices[i], lv->surface, &pqueue_index);
+		int swapchain  = lv_device_has_extension(devices[i], VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+		int chain_ok   = swapchain && lv_swapchain_adequate(devices[i], lv->surface);
+
+		if (score > device_score && has_gqueue && has_pqueue && chain_ok)
+		{
+			device_score = score;
+			lv->pdevice = devices[i];
+			lv->gqueue->index = gqueue_index;
+			lv->pqueue->index = pqueue_index;
+			break;
+		}
+	}
+
+	free(devices);
+	return lv->pdevice != VK_NULL_HANDLE;
+}
+
+
 int lv_logical_device_create(VkDevice *ldevice, VkPhysicalDevice *pdevice, 
 		lv_queue_s *gqueue, lv_queue_s *pqueue, lv_name_set_s *extensions)
 {
