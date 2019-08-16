@@ -1,6 +1,10 @@
 #include <vulkan/vulkan.h>
 #include <sys/stat.h>
 
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
+
 //
 // STRUCTS, ENUMS
 //
@@ -54,6 +58,7 @@ typedef struct lv_shader
 typedef struct lv_state
 {
 	lv_config_s      *config;
+	GLFWwindow       *window;                // TODO obviously, this doesn't belong here
 	VkInstance        instance;
 	VkPhysicalDevice  pdevice;
 	VkDevice          ldevice;
@@ -62,6 +67,9 @@ typedef struct lv_state
 	VkSurfaceKHR      surface;
 	lv_shader_s      *vert_shader;
 	lv_shader_s      *frag_shader;
+	VkSwapchainKHR    swapchain;
+	lv_image_set_s    swapchain_images;
+	VkImageView      *imageviews;
 } lv_state_s;
 
 //
@@ -73,6 +81,12 @@ lv_state_s *lv_init(lv_config_s *cfg)
 	lv_state_s *lv = malloc(sizeof(lv_state_s));
 	// TODO copy this instead, so the caller can free their thingy if they want
 	lv->config = cfg;
+
+	// TODO do the following actually need to be pointers?
+	lv->gqueue = malloc(sizeof(lv_queue_s));
+	lv->pqueue = malloc(sizeof(lv_queue_s));
+	lv->vert_shader = malloc(sizeof(lv_shader_s));
+	lv->frag_shader = malloc(sizeof(lv_shader_s));
 
 	return lv;
 }
