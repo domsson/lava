@@ -600,19 +600,100 @@ int lava_shader_module_create(VkDevice ldevice, lava_shader_t *shader, VkShaderM
 	return (vkCreateShaderModule(ldevice, &info, NULL, shader_module) == VK_SUCCESS);
 }
 
-int lava_shader_stage_create(VkShaderModule *vert_shader_module, VkShaderModule *frag_shader_module)
+int lava_shader_stage_create(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurfaceKHR surface, VkShaderModule *vert_shader_module, VkShaderModule *frag_shader_module)
 {
 	VkPipelineShaderStageCreateInfo vert_info = { 0 };
 	vert_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	vert_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
-	vert_info.module = vert_shader_module;
+	vert_info.module = *vert_shader_module;
 	vert_info.pName = "main";
 
 	VkPipelineShaderStageCreateInfo frag_info = { 0 };
 	frag_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	frag_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	frag_info.module = frag_shader_module;
+	frag_info.module = *frag_shader_module;
 	frag_info.pName = "main";
 
 	// TODO ??? we're not doing anything with that shizzle yet lul
+
+
+	VkPipelineVertexInputStateCreateInfo vertexInputInfo = { 0 };
+	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	vertexInputInfo.vertexBindingDescriptionCount = 0;
+	vertexInputInfo.vertexAttributeDescriptionCount = 0;
+
+
+	VkPipelineInputAssemblyStateCreateInfo inputAssembly = { 0 };
+	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+
+	VkSurfaceCapabilitiesKHR caps = lava_device_surface_get_capabilities(pdevice, surface);
+
+	VkViewport viewport = { 0 };
+	viewport.x = 0.0f;
+	viewport.y = 0.0f;
+	viewport.width = (float) caps.currentExtent.width;
+	viewport.height = (float) caps.currentExtent.height;
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	
+	VkRect2D scissor = { 0 };
+	scissor.offset.x = 0;
+        scissor.offset.y = 0;
+	scissor.extent = caps.currentExtent;
+
+	VkPipelineViewportStateCreateInfo viewportState = { 0 };
+	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewportState.viewportCount = 1;
+	viewportState.pViewports = &viewport;
+	viewportState.scissorCount = 1;
+	viewportState.pScissors = &scissor;
+
+	VkPipelineRasterizationStateCreateInfo rasterizer = { 0 };
+	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterizer.depthClampEnable = VK_FALSE;
+	rasterizer.rasterizerDiscardEnable = VK_FALSE;
+	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+	rasterizer.lineWidth = 1.0f;
+	rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+	rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	rasterizer.depthBiasEnable = VK_FALSE;
+
+	VkPipelineMultisampleStateCreateInfo multisampling = { 0 };
+	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisampling.sampleShadingEnable = VK_FALSE;
+	multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+	VkPipelineColorBlendAttachmentState colorBlendAttachment = { 0 };
+	colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	colorBlendAttachment.blendEnable = VK_FALSE;
+
+	VkPipelineColorBlendStateCreateInfo colorBlending = { 0 };
+	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	colorBlending.logicOpEnable = VK_FALSE;
+	colorBlending.attachmentCount = 1;
+	colorBlending.pAttachments = &colorBlendAttachment;
+
+	VkDynamicState dynamicStates[] = {
+	    VK_DYNAMIC_STATE_VIEWPORT,
+	    VK_DYNAMIC_STATE_LINE_WIDTH
+	};
+
+	VkPipelineDynamicStateCreateInfo dynamicState = { 0 };
+	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamicState.dynamicStateCount = 2;
+	dynamicState.pDynamicStates = dynamicStates;
+
+	VkPipelineLayout pipelineLayout;
+
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo = { 0 };
+	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+
+	if (vkCreatePipelineLayout(ldevice, &pipelineLayoutInfo, NULL, &pipelineLayout) != VK_SUCCESS) {
+		return 0;
+	}
+
+	return 1;
 }
