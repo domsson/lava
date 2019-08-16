@@ -12,32 +12,44 @@
 #define WINDOW_HEIGHT 600
 #define WINDOW_TITLE "LAVA LAVA"
 
-struct lava
+struct lv
 {
 	GLFWwindow		*window;
-	VkInstance       	vulkan_instance;
-	VkPhysicalDevice 	physical_device;	// aka GPU
-	VkDevice         	logical_device;		// we talk to the GPU via this
-	VkQueue			graphics_queue;		// graphics queue
-	uint32_t		graphics_queue_index;	// graphcis queue index
-	VkQueue			present_queue;
-	uint32_t		present_queue_index;
-	VkSurfaceKHR		surface;		// surface we draw on
-	VkSwapchainKHR          swapchain;
-	lava_image_set_t        swapchain_images;
+	VkInstance       	 vulkan_instance;
+	VkPhysicalDevice 	 physical_device;	// aka GPU
+	VkDevice         	 logical_device;	// we talk to the GPU via this
+	VkQueue			 graphics_queue;	// graphics queue
+	uint32_t		 graphics_queue_index;	// graphcis queue index
+	VkQueue			 present_queue;
+	uint32_t		 present_queue_index;
+	VkSurfaceKHR		 surface;		// surface we draw on
+	VkSwapchainKHR           swapchain;
+	lv_image_set_s           swapchain_images;
 	VkImageView             *imageviews;
-	lava_shader_t		vertex_shader;
-	lava_shader_t		fragment_shader;
+	lv_shader_s	 	 vertex_shader;
+	lv_shader_s 		 fragment_shader;
 };
 
-int load_shaders(struct lava *lv)
+int load_shaders(struct lv *lv)
 {
-	if (lava_load_shader_spv("./shaders/default.vert.spv", &lv->vertex_shader) == 0)
+	/*
+	if (lv_load_shader_spv("./shaders/default.vert.spv", &lv->vertex_shader) == 0)
 	{
 		return 0;
 	}
 	
-	if (lava_load_shader_spv("./shaders/default.frag.spv", &lv->fragment_shader) == 0)
+	if (lv_load_shader_spv("./shaders/default.frag.spv", &lv->fragment_shader) == 0)
+	{
+		return 0;
+	}
+	*/
+
+	if (lv_shader_from_file_spv(lv->logical_device, "./shaders/default.vert.spv", &lv->vertex_shader) == 0)
+	{
+		return 0;
+	}
+
+	if (lv_shader_from_file_spv(lv->logical_device, "./shaders/default.frag.spv", &lv->fragment_shader) == 0)
 	{
 		return 0;
 	}
@@ -46,7 +58,7 @@ int load_shaders(struct lava *lv)
 	// TODO gotta free these motherflippers somewhere at some point lol
 }
 
-int create_glfw_window(struct lava *lv)
+int create_glfw_window(struct lv *lv)
 {
 	// Attempt to initialize GLFW
 	if (glfwInit() == GLFW_FALSE)
@@ -62,15 +74,20 @@ int create_glfw_window(struct lava *lv)
 	return lv->window != NULL;
 }
 
-int create_vk_instance(struct lava *lv)
+int create_vk_instance(struct lv *lv)
 {
-	lava_name_set_t extensions = { 0 };
+	lv_name_set_s extensions = { 0 };
 	extensions.names = glfwGetRequiredInstanceExtensions(&extensions.count);
+	
+	lv_name_set_s layers = { 0 };
+	const char* names[] = { "VK_LAYER_LUNARG_standard_validation" };
+	layers.names = names;
+	layers.count = 1;
 
-	return lava_instance_create(&lv->vulkan_instance, &extensions, NULL);
+	return lv_instance_create(&lv->vulkan_instance, &extensions, &layers);
 }
 
-int create_surface(struct lava *lv)
+int create_surface(struct lv *lv)
 {
     if (glfwCreateWindowSurface(lv->vulkan_instance, lv->window, NULL, &(lv->surface)) != VK_SUCCESS)
     {
@@ -79,17 +96,17 @@ int create_surface(struct lava *lv)
     return 1;
 }
 
-int create_swapchain(struct lava *lv)
+int create_swapchain(struct lv *lv)
 {
-	lava_queue_t gqueue = { .queue = lv->graphics_queue, .index = lv->graphics_queue_index };
-	lava_queue_t pqueue = { .queue = lv->present_queue,  .index = lv->present_queue_index };
+	lv_queue_s gqueue = { .queue = lv->graphics_queue, .index = lv->graphics_queue_index };
+	lv_queue_s pqueue = { .queue = lv->present_queue,  .index = lv->present_queue_index };
 
-	if (lava_create_swapchain(lv->physical_device, lv->surface, lv->logical_device, &gqueue, &pqueue, &lv->swapchain) == 0)
+	if (lv_create_swapchain(lv->physical_device, lv->surface, lv->logical_device, &gqueue, &pqueue, &lv->swapchain) == 0)
 	{
 		return 0;
 	}
 
-	if (lava_get_swapchain_images(lv->logical_device, lv->swapchain, &lv->swapchain_images) == 0)
+	if (lv_get_swapchain_images(lv->logical_device, lv->swapchain, &lv->swapchain_images) == 0)
 	{
 		return 0;
 	}
@@ -97,18 +114,18 @@ int create_swapchain(struct lava *lv)
 	return 1;
 }
 
-int create_swapchain_imageviews(struct lava *lv)
+int create_swapchain_imageviews(struct lv *lv)
 {
-	return lava_create_swapchain_imageviews(lv->physical_device, lv->logical_device, lv->surface, &lv->swapchain_images, lv->imageviews);
+	return lv_create_swapchain_imageviews(lv->physical_device, lv->logical_device, lv->surface, &lv->swapchain_images, lv->imageviews);
 }
 
 int swapchain_adequate(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
-	return lava_device_surface_format_count(device, surface) &&
-		lava_device_surface_present_mode_count(device, surface);
+	return lv_device_surface_format_count(device, surface) &&
+		lv_device_surface_present_mode_count(device, surface);
 }
 
-int select_vk_gpu(struct lava *lv)
+int select_vk_gpu(struct lv *lv)
 {
 	uint32_t device_count = 0;
 	vkEnumeratePhysicalDevices(lv->vulkan_instance, &device_count, NULL);
@@ -126,10 +143,10 @@ int select_vk_gpu(struct lava *lv)
 
 	for (int i = 0; i < device_count; ++i)
 	{
-		int suitability        = lava_device_score(devices[i]);
-		int has_graphics_queue = lava_device_has_graphics_queue(devices[i], &graphics_queue_index);
-		int has_present_queue  = lava_device_has_present_queue(devices[i], lv->surface, &present_queue_index);
-		int supports_swapchain = lava_device_has_extension(devices[i], VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+		int suitability        = lv_device_score(devices[i]);
+		int has_graphics_queue = lv_device_has_graphics_queue(devices[i], &graphics_queue_index);
+		int has_present_queue  = lv_device_has_present_queue(devices[i], lv->surface, &present_queue_index);
+		int supports_swapchain = lv_device_has_extension(devices[i], VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 		int chain_adequate     = supports_swapchain && swapchain_adequate(devices[i], lv->surface);
 
 		if (suitability > device_suitability && has_graphics_queue && has_present_queue && chain_adequate)
@@ -146,22 +163,22 @@ int select_vk_gpu(struct lava *lv)
 	return lv->physical_device != VK_NULL_HANDLE;
 }
 
-int create_logical_device(struct lava *lv)
+int create_logical_device(struct lv *lv)
 {
-	lava_name_set_t extensions = { 0 };
+	lv_name_set_s extensions = { 0 };
 
 	const char* names[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 	extensions.names = names;
 	extensions.count = 1;
 
-	lava_queue_t graphics_queue = { .priority = 1.0f };
-	lava_queue_t present_queue  = { 0 };
+	lv_queue_s graphics_queue = { .priority = 1.0f };
+	lv_queue_s present_queue  = { 0 };
 
-	return lava_logical_device_create(&lv->logical_device, &lv->physical_device,
+	return lv_logical_device_create(&lv->logical_device, &lv->physical_device,
 			&graphics_queue, &present_queue, &extensions); 
 }
 
-void main_loop(struct lava *lv)
+void main_loop(struct lv *lv)
 {
 	while (!glfwWindowShouldClose(lv->window))
 	{
@@ -173,7 +190,7 @@ int main()
 {
 	// INIT
 
-	struct lava lv = { 0 };
+	struct lv lv = { 0 };
 
 	if (create_glfw_window(&lv) == 0)
 	{
@@ -181,15 +198,15 @@ int main()
 		return EXIT_FAILURE;
 	}
 
+	if (lv_instance_has_layer("VK_LAYER_LUNARG_standard_validation") == 0)
+	{
+		fprintf(stderr, "Validation layer is not available\n");
+	}
+
 	if (create_vk_instance(&lv) == 0)
 	{
 		fprintf(stderr, "Could not create Vulkan instance\n");
 		return EXIT_FAILURE;
-	}
-
-	if (lava_instance_has_layer("VK_LAYER_LUNARG_standard_validation") == 0)
-	{
-		fprintf(stderr, "Validation layer is not available\n");
 	}
 
 	if (create_surface(&lv) == 0)
@@ -204,17 +221,17 @@ int main()
 		return EXIT_FAILURE;
 	}
 
-	if (lava_device_surface_has_format(lv.physical_device, lv.surface, VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, NULL) == 0)
+	if (lv_device_surface_has_format(lv.physical_device, lv.surface, VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, NULL) == 0)
 	{
 		fprintf(stderr, "Device does not have desired surface format available\n");
 	}
 
-	if (lava_device_surface_has_present_mode(lv.physical_device, lv.surface, VK_PRESENT_MODE_MAILBOX_KHR, NULL) == 0)
+	if (lv_device_surface_has_present_mode(lv.physical_device, lv.surface, VK_PRESENT_MODE_MAILBOX_KHR, NULL) == 0)
 	{
 		fprintf(stderr, "Device does not have desired present mode available\n");
 	}
 
-	if (lava_device_surface_has_present_mode(lv.physical_device, lv.surface, VK_PRESENT_MODE_FIFO_KHR, NULL) == 0)
+	if (lv_device_surface_has_present_mode(lv.physical_device, lv.surface, VK_PRESENT_MODE_FIFO_KHR, NULL) == 0)
 	{
 		fprintf(stderr, "Device does not have any present mode available\n");
 	}
@@ -244,18 +261,18 @@ int main()
 	}
 
 	fprintf(stdout, "Devices available:\n");
-	lava_print_devices(lv.vulkan_instance);
+	lv_print_devices(lv.vulkan_instance);
 
 	fprintf(stdout, "Extensions available:\n");
-	lava_print_extensions();
+	lv_print_extensions();
 
 	fprintf(stdout, "Layers available:\n");
-	lava_print_layers();
+	lv_print_layers();
 
-	int dsfc = lava_device_surface_format_count(lv.physical_device, lv.surface);
+	int dsfc = lv_device_surface_format_count(lv.physical_device, lv.surface);
 	fprintf(stdout, "Number of surface formats available: %d\n", dsfc);
 
-	int dspmc = lava_device_surface_present_mode_count(lv.physical_device, lv.surface);
+	int dspmc = lv_device_surface_present_mode_count(lv.physical_device, lv.surface);
 	fprintf(stdout, "Number of surface present modes available: %d\n", dspmc);
 
 	// MAIN LOOP

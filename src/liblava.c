@@ -1,67 +1,70 @@
 #include <vulkan/vulkan.h>
 #include <sys/stat.h>
 
-struct lava_config
+typedef struct lv_config
 {
 	int validation;
 	// func pointer to debug_callback_function for validation message handling
-};
+} lv_config_s;
 
-typedef struct lava_config lava_config_t;
-
-struct lava_name_set
+typedef struct lv_name_set
 {
 	const char* const* names; // same as const char** ?
 	uint32_t           count;
-};
+} lv_name_set_s;
 
-typedef struct lava_name_set lava_name_set_t;
-
-struct lava_queue
+typedef struct lv_queue
 {
 	VkQueue  queue;
 	uint32_t index;
 	float priority;
-};
+} lv_queue_s;
 
-typedef struct lava_queue lava_queue_t;
-
-struct lava_image_set
+typedef struct lv_image_set
 {
 	VkImage  *images;
 	uint32_t  count;
-};
+} lv_image_set_s;
 
-typedef struct lava_image_set lava_image_set_t;
+typedef struct lv_image_set lv_image_set_s;
 
-struct lava_shader
+typedef enum lv_shader_type
 {
-	char   *data;
-	size_t  size;
-};
+	LV_NONE,	// type not specified or unknown
+	LV_VERT,	// vertex
+	LV_TESC,	// tessellation control
+	LV_TESE,	// tessellation evaluation
+	LV_GEOM,	// geometry
+	LV_FRAG,	// fragment
+	LV_COMP		// compute
+} lv_shader_type_e;
 
-typedef struct lava_shader lava_shader_t;
-
-struct lava_state
+typedef struct lv_shader
 {
-	lava_config_t    *config;
+	uint32_t         *data;		// SPIR-V bytecode
+	size_t            size;		// size of bytecode
+	lv_shader_type_e  type;		// shader type (vertex, fragment, ...)
+	VkShaderModule   *module;	// vulkan shader module TODO make this a pointer so we can check against NULL?
+} lv_shader_s;
+
+typedef struct lv_state
+{
+	lv_config_s      *config;
 	VkInstance        vk_instance;
 	VkPhysicalDevice  physical_device;
 	VkDevice          logical_device;
-	lava_queue_t     *graphics_queue;
-	lava_queue_t     *present_queue;
+	lv_queue_s       *graphics_queue;
+	lv_queue_s       *present_queue;
 	VkSurfaceKHR      surface;
-};
-
-typedef struct lava_state lava_state_t;
+} lv_state_s;
 
 //
 //
 //
 
-lava_state_t *lava_init(lava_config_t *cfg)
+lv_state_s *lv_init(lv_config_s *cfg)
 {
-	lava_state_t *lv = malloc(sizeof(lava_state_t));
+	lv_state_s *lv = malloc(sizeof(lv_state_s));
 	// TODO copy this instead, so the caller can free their thingy if they want
 	lv->config = cfg;
 
@@ -69,7 +72,7 @@ lava_state_t *lava_init(lava_config_t *cfg)
 }
 
 // const char* const* -> "a pointer to a constant pointer to a char constant"
-int lava_instance_create(VkInstance *instance, lava_name_set_t *extensions, lava_name_set_t *layers)
+int lv_instance_create(VkInstance *instance, lv_name_set_s *extensions, lv_name_set_s *layers)
 {
 	VkInstanceCreateInfo info = { 0 };
 	info.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -83,7 +86,7 @@ int lava_instance_create(VkInstance *instance, lava_name_set_t *extensions, lava
 	return (vkCreateInstance(&info, NULL, instance) == VK_SUCCESS);
 }
 
-int lava_print_extensions()
+int lv_print_extensions()
 {
 	uint32_t ext_count = 0;
 	vkEnumerateInstanceExtensionProperties(NULL, &ext_count, NULL);
@@ -105,7 +108,7 @@ int lava_print_extensions()
 	return ext_count;
 }
 
-int lava_instance_has_extension(const char *name)
+int lv_instance_has_extension(const char *name)
 {
 	uint32_t ext_count = 0;
 	vkEnumerateInstanceExtensionProperties(NULL, &ext_count, NULL);
@@ -132,7 +135,7 @@ int lava_instance_has_extension(const char *name)
 	return found;
 }
 
-int lava_print_layers()
+int lv_print_layers()
 {
 	uint32_t layer_count = 0;
 	vkEnumerateInstanceLayerProperties(&layer_count, NULL);
@@ -154,7 +157,7 @@ int lava_print_layers()
 	return layer_count;
 }
 
-int lava_instance_has_layer(const char *name)
+int lv_instance_has_layer(const char *name)
 {
 	uint32_t layer_count = 0;
 	vkEnumerateInstanceLayerProperties(&layer_count, NULL);
@@ -181,7 +184,7 @@ int lava_instance_has_layer(const char *name)
 	return found;
 }
 
-int lava_device_has_extension(VkPhysicalDevice device, const char *name)
+int lv_device_has_extension(VkPhysicalDevice device, const char *name)
 {
 	uint32_t ext_count = 0;
 	vkEnumerateDeviceExtensionProperties(device, NULL, &ext_count, NULL);
@@ -203,7 +206,7 @@ int lava_device_has_extension(VkPhysicalDevice device, const char *name)
 	return found;
 }
 
-int lava_device_has_graphics_queue(VkPhysicalDevice device, int *idx)
+int lv_device_has_graphics_queue(VkPhysicalDevice device, int *idx)
 {
 	uint32_t queue_count = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_count, NULL);
@@ -230,7 +233,7 @@ int lava_device_has_graphics_queue(VkPhysicalDevice device, int *idx)
 	return found;
 }
 
-int lava_device_has_present_queue(VkPhysicalDevice device, VkSurfaceKHR surface, int *idx)
+int lv_device_has_present_queue(VkPhysicalDevice device, VkSurfaceKHR surface, int *idx)
 {
 	uint32_t queue_count = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_count, NULL);
@@ -259,7 +262,7 @@ int lava_device_has_present_queue(VkPhysicalDevice device, VkSurfaceKHR surface,
 	return found;
 }
 
-VkSurfaceCapabilitiesKHR lava_device_surface_get_capabilities(VkPhysicalDevice device, VkSurfaceKHR surface)
+VkSurfaceCapabilitiesKHR lv_device_surface_get_capabilities(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
 	VkSurfaceCapabilitiesKHR capabilities;
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities);
@@ -267,14 +270,14 @@ VkSurfaceCapabilitiesKHR lava_device_surface_get_capabilities(VkPhysicalDevice d
 	return capabilities;
 }
 
-int lava_device_surface_format_count(VkPhysicalDevice device, VkSurfaceKHR surface)
+int lv_device_surface_format_count(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
 	uint32_t format_count = 0;
 	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, NULL);
 	return format_count;
 }
 
-int lava_device_surface_has_format(VkPhysicalDevice device, VkSurfaceKHR surface, VkFormat format, VkColorSpaceKHR cspace, int *idx)
+int lv_device_surface_has_format(VkPhysicalDevice device, VkSurfaceKHR surface, VkFormat format, VkColorSpaceKHR cspace, int *idx)
 {
 	uint32_t format_count = 0;
 	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, NULL);
@@ -306,7 +309,7 @@ int lava_device_surface_has_format(VkPhysicalDevice device, VkSurfaceKHR surface
 	return found;
 }
 
-VkSurfaceFormatKHR lava_device_surface_get_format_by_index(VkPhysicalDevice device, VkSurfaceKHR surface, int index)
+VkSurfaceFormatKHR lv_device_surface_get_format_by_index(VkPhysicalDevice device, VkSurfaceKHR surface, int index)
 {
 	VkSurfaceFormatKHR format = { 0 };
 	
@@ -328,14 +331,14 @@ VkSurfaceFormatKHR lava_device_surface_get_format_by_index(VkPhysicalDevice devi
 	return format;
 }
 
-int lava_device_surface_present_mode_count(VkPhysicalDevice device, VkSurfaceKHR surface)
+int lv_device_surface_present_mode_count(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
 	uint32_t present_mode_count;
 	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, NULL);
 	return present_mode_count;
 }
 
-VkPresentModeKHR lava_device_surface_get_present_mode_by_index(VkPhysicalDevice device, VkSurfaceKHR surface, int index)
+VkPresentModeKHR lv_device_surface_get_present_mode_by_index(VkPhysicalDevice device, VkSurfaceKHR surface, int index)
 {
 	uint32_t present_mode_count;
 	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, NULL);
@@ -351,7 +354,7 @@ VkPresentModeKHR lava_device_surface_get_present_mode_by_index(VkPhysicalDevice 
 	return present_modes[index];
 }
 
-int lava_device_surface_has_present_mode(VkPhysicalDevice device, VkSurfaceKHR surface, VkPresentModeKHR mode, int *idx)
+int lv_device_surface_has_present_mode(VkPhysicalDevice device, VkSurfaceKHR surface, VkPresentModeKHR mode, int *idx)
 {
 	uint32_t present_mode_count;
 	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, NULL);
@@ -383,12 +386,12 @@ int lava_device_surface_has_present_mode(VkPhysicalDevice device, VkSurfaceKHR s
 	return found;
 }
 
-int lava_create_swapchain(VkPhysicalDevice pdevice, VkSurfaceKHR surface, VkDevice ldevice,
-		lava_queue_t *gqueue, lava_queue_t *pqueue, VkSwapchainKHR *swapchain)
+int lv_create_swapchain(VkPhysicalDevice pdevice, VkSurfaceKHR surface, VkDevice ldevice,
+		lv_queue_s *gqueue, lv_queue_s *pqueue, VkSwapchainKHR *swapchain)
 {
 	
-	VkSurfaceCapabilitiesKHR caps = lava_device_surface_get_capabilities(pdevice, surface);
-	VkSurfaceFormatKHR format = lava_device_surface_get_format_by_index(pdevice, surface, 0);
+	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(pdevice, surface);
+	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(pdevice, surface, 0);
 
 	VkSwapchainCreateInfoKHR info = { 0 };
 	info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -422,7 +425,7 @@ int lava_create_swapchain(VkPhysicalDevice pdevice, VkSurfaceKHR surface, VkDevi
 	return (vkCreateSwapchainKHR(ldevice, &info, NULL, swapchain) == VK_SUCCESS);
 }
 
-int lava_get_swapchain_images(VkDevice ldevice, VkSwapchainKHR swapchain, lava_image_set_t *images)
+int lv_get_swapchain_images(VkDevice ldevice, VkSwapchainKHR swapchain, lv_image_set_s *images)
 {
 	vkGetSwapchainImagesKHR(ldevice, swapchain, &images->count, NULL);
 
@@ -430,11 +433,11 @@ int lava_get_swapchain_images(VkDevice ldevice, VkSwapchainKHR swapchain, lava_i
 	return (vkGetSwapchainImagesKHR(ldevice, swapchain, &images->count, images->images) == VK_SUCCESS);
 }
 
-int lava_create_swapchain_imageviews(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurfaceKHR surface, lava_image_set_t *images, VkImageView *image_views)
+int lv_create_swapchain_imageviews(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurfaceKHR surface, lv_image_set_s *images, VkImageView *image_views)
 {
 	image_views = malloc(sizeof(VkImageView) * images->count);
 
-	VkSurfaceFormatKHR format = lava_device_surface_get_format_by_index(pdevice, surface, 0);
+	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(pdevice, surface, 0);
 
 	int created = 0;
 	for (int i = 0; i < images->count; ++i)
@@ -469,7 +472,7 @@ int lava_create_swapchain_imageviews(VkPhysicalDevice pdevice, VkDevice ldevice,
  * name needs to have a size of at least
  * VK_MAX_PHYSICAL_DEVICE_NAME_SIZE
  */
-void lava_device_name(VkPhysicalDevice device, char *name)
+void lv_device_name(VkPhysicalDevice device, char *name)
 {
 	VkPhysicalDeviceProperties props;
 	vkGetPhysicalDeviceProperties(device, &props);
@@ -477,7 +480,7 @@ void lava_device_name(VkPhysicalDevice device, char *name)
 	strncpy(name, props.deviceName, VK_MAX_PHYSICAL_DEVICE_NAME_SIZE);
 }
 
-int lava_print_devices(VkInstance instance)
+int lv_print_devices(VkInstance instance)
 {
 	uint32_t device_count = 0;
 	vkEnumeratePhysicalDevices(instance, &device_count, NULL);
@@ -494,7 +497,7 @@ int lava_print_devices(VkInstance instance)
 
 	for (int i = 0; i < device_count; ++i)
 	{
-		lava_device_name(devices[i], device_name);
+		lv_device_name(devices[i], device_name);
 		fprintf(stdout, "%*d: %s\n", 2, i+1, device_name);
 	}
 
@@ -507,7 +510,7 @@ int lava_print_devices(VkInstance instance)
  * Returns 3 for a discrete GPU, 2 for an integrated GPU, 1 for all other
  * recognized GPU types, 0 for unknown (other) devices.
  */
-int lava_device_score(VkPhysicalDevice device)
+int lv_device_score(VkPhysicalDevice device)
 {
 	VkPhysicalDeviceProperties props;
 	vkGetPhysicalDeviceProperties(device, &props);
@@ -528,8 +531,8 @@ int lava_device_score(VkPhysicalDevice device)
 	return 1;
 }
 
-int lava_logical_device_create(VkDevice *ldevice, VkPhysicalDevice *pdevice, 
-		lava_queue_t *gqueue, lava_queue_t *pqueue, lava_name_set_t *extensions)
+int lv_logical_device_create(VkDevice *ldevice, VkPhysicalDevice *pdevice, 
+		lv_queue_s *gqueue, lv_queue_s *pqueue, lv_name_set_s *extensions)
 {
 	VkDeviceQueueCreateInfo queue_info = { 0 };
 	VkPhysicalDeviceFeatures device_features = { 0 };
@@ -558,7 +561,13 @@ int lava_logical_device_create(VkDevice *ldevice, VkPhysicalDevice *pdevice,
 	return gqueue->queue != VK_NULL_HANDLE && pqueue->queue != VK_NULL_HANDLE;
 }
 
-int lava_load_shader_spv(const char* path, lava_shader_t *shader)
+/*
+ * Loads a file containing SPIR-V shader bytecode and stores the data,
+ * as well as its size in bytes, in the provided lv_shader_s struct.
+ * TODO we could check the file suffix and set the shader->type
+ *      accordingly (.vert, .tesc, .tese, .frag, .geom, .comp)
+ */
+int lv_load_shader_spv(const char* path, lv_shader_s *shader)
 {
 	// Try to open file for reading
 	FILE *file = fopen(path, "rb");
@@ -581,26 +590,54 @@ int lava_load_shader_spv(const char* path, lava_shader_t *shader)
 		return 0;
 	}
 
-	// Number of bytes read different from the shader's file size
+	// Check if number of bytes read is different from shader file size
 	if (fread(shader->data, 1, st.st_size, file) != st.st_size)
 	{
 		return 0;
 	}
-	
+
+	shader->size = st.st_size;
 	return 1; 
 }
 
-int lava_shader_module_create(VkDevice ldevice, lava_shader_t *shader, VkShaderModule *shader_module)
+/*
+ * Creates a shader module from the SPIR-V shader byte code give in the
+ * provided lv_shader_s struct. The shader module will be stored in the
+ * struct as well.
+ * TODO figure out if we can safely free the shader->data once it's 
+ *      been turned into a VkShaderModule handle?
+ */
+int lv_shader_module_create(VkDevice ldevice, lv_shader_s *shader)
 {
 	VkShaderModuleCreateInfo info = { 0 };
-	info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	info.codeSize = shader->size;
-	info.pCode = (uint32_t *) shader->data;
+	info.pCode    = shader->data;
 
-	return (vkCreateShaderModule(ldevice, &info, NULL, shader_module) == VK_SUCCESS);
+	shader->module = malloc(sizeof(VkShaderModule)); // TODO this needs a free. also, we could avoid this by using a non-pointer member instead
+	VkResult lol = vkCreateShaderModule(ldevice, &info, NULL, shader->module);
+	if (lol == VK_ERROR_OUT_OF_HOST_MEMORY)
+	{
+		fprintf(stderr, "vkCreateShaderModule(): VK_ERROR_OUT_OF_HOST_MEMORY\n");
+	}
+
+	return lol == VK_SUCCESS;
 }
 
-int lava_shader_stage_create(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurfaceKHR surface, VkShaderModule *vert_shader_module, VkShaderModule *frag_shader_module)
+int lv_shader_from_file_spv(VkDevice ldevice, const char *path, lv_shader_s *shader)
+{
+	if (lv_load_shader_spv(path, shader) == 0)
+	{
+		return 0;
+	}
+	if (lv_shader_module_create(ldevice, shader) == 0)
+	{
+		return 0;
+	}
+	return 1;
+}
+
+int lv_shader_stage_create(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurfaceKHR surface, VkShaderModule *vert_shader_module, VkShaderModule *frag_shader_module)
 {
 	VkPipelineShaderStageCreateInfo vert_info = { 0 };
 	vert_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -629,7 +666,7 @@ int lava_shader_stage_create(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurfa
 	inputAssembly.primitiveRestartEnable = VK_FALSE;
 
 
-	VkSurfaceCapabilitiesKHR caps = lava_device_surface_get_capabilities(pdevice, surface);
+	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(pdevice, surface);
 
 	VkViewport viewport = { 0 };
 	viewport.x = 0.0f;
