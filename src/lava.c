@@ -14,6 +14,21 @@
 
 #define VALIDATION_LAYER "VK_LAYER_LUNARG_standard_validation" 
 
+int pipeline_shizzle(lv_state_s *lv)
+{
+	if (lv_renderpass_create(lv) == 0)
+	{
+		return 0;
+	}
+
+	if (lv_pipeline_create(lv) == 0)
+	{
+		return 0;
+	}
+
+	return 1;
+}
+
 int load_shaders(lv_state_s *lv)
 {
 	if (lv_shader_from_file_spv(lv->ldevice, "./shaders/default.vert.spv", lv->vert_shader, LV_SHADER_VERT) == 0)
@@ -22,6 +37,11 @@ int load_shaders(lv_state_s *lv)
 	}
 
 	if (lv_shader_from_file_spv(lv->ldevice, "./shaders/default.frag.spv", lv->frag_shader, LV_SHADER_FRAG) == 0)
+	{
+		return 0;
+	}
+
+	if (lv_shader_stage_create(lv->pdevice, lv->ldevice, lv->surface, lv->vert_shader, lv->frag_shader) == 0)
 	{
 		return 0;
 	}
@@ -90,7 +110,7 @@ int create_swapchain_imageviews(lv_state_s *lv)
 
 int select_vk_gpu(lv_state_s *lv)
 {
-	lv_device_autoselect(lv);
+	return lv_device_autoselect(lv);
 }
 
 int create_logical_device(lv_state_s *lv)
@@ -129,7 +149,7 @@ int main()
 		return EXIT_FAILURE;
 	}
 
-	if (lv_instance_has_layer("VK_LAYER_LUNARG_standard_validation") == 0)
+	if (lv_instance_has_layer(VALIDATION_LAYER) == 0)
 	{
 		fprintf(stderr, "Validation layer is not available\n");
 	}
@@ -188,6 +208,12 @@ int main()
 	if (load_shaders(lv) == 0)
 	{
 		fprintf(stderr, "Failed loading shaders\n");
+		return EXIT_FAILURE;
+	}
+	
+	if (pipeline_shizzle(lv) == 0)
+	{
+		fprintf(stderr, "Failed pipelining the render sausage accumulator pass\n");
 		return EXIT_FAILURE;
 	}
 

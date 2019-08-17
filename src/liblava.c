@@ -53,6 +53,7 @@ typedef struct lv_shader
 	size_t            size;		// size of bytecode
 	lv_shader_type_e  type;		// shader type (vertex, fragment, ...)
 	VkShaderModule    module;	// vulkan shader module 
+	VkPipelineShaderStageCreateInfo stage_info;
 } lv_shader_s;
 
 typedef struct lv_state
@@ -70,6 +71,9 @@ typedef struct lv_state
 	VkSwapchainKHR    swapchain;
 	lv_image_set_s    swapchain_images;
 	VkImageView      *imageviews;
+	VkRenderPass      render_pass;
+	VkPipelineLayout  pipeline_layout;
+	VkPipeline        pipeline;
 } lv_state_s;
 
 //
@@ -687,6 +691,26 @@ int lv_shader_module_create(VkDevice ldevice, lv_shader_s *shader)
 	return vkCreateShaderModule(ldevice, &info, NULL, &shader->module) == VK_SUCCESS;
 }
 
+int lv_shader_stage_create(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurfaceKHR surface, lv_shader_s *vert_shader, lv_shader_s *frag_shader)
+{
+	VkPipelineShaderStageCreateInfo vert_info = { 0 };
+	vert_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	vert_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	vert_info.module = vert_shader->module;
+	vert_info.pName = "main";
+
+	VkPipelineShaderStageCreateInfo frag_info = { 0 };
+	frag_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	frag_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	frag_info.module = frag_shader->module;
+	frag_info.pName = "main";
+
+	vert_shader->stage_info = vert_info;
+	frag_shader->stage_info = frag_info;
+
+	return 1;
+}
+
 int lv_shader_from_file_spv(VkDevice ldevice, const char *path, lv_shader_s *shader, lv_shader_type_e type)
 {
 	if (lv_load_shader_spv(path, shader) == 0)
@@ -700,25 +724,46 @@ int lv_shader_from_file_spv(VkDevice ldevice, const char *path, lv_shader_s *sha
 	{
 		return 0;
 	}
+
 	return 1;
 }
 
-int lv_shader_stage_create(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurfaceKHR surface, VkShaderModule *vert_shader_module, VkShaderModule *frag_shader_module)
+int lv_renderpass_create(lv_state_s *lv)
 {
-	VkPipelineShaderStageCreateInfo vert_info = { 0 };
-	vert_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	vert_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
-	vert_info.module = *vert_shader_module;
-	vert_info.pName = "main";
+	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(lv->pdevice, lv->surface, 0);
 
-	VkPipelineShaderStageCreateInfo frag_info = { 0 };
-	frag_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	frag_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	frag_info.module = *frag_shader_module;
-	frag_info.pName = "main";
+	VkAttachmentDescription colorAttachment = {};
+	colorAttachment.format         = format.format;
+	colorAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	colorAttachment.storeOp        = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachment.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	colorAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
+	colorAttachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-	// TODO ??? we're not doing anything with that shizzle yet lul
+	VkAttachmentReference colorAttachmentRef = {};
+	colorAttachmentRef.attachment = 0;
+	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+	VkSubpassDescription subpass = {};
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &colorAttachmentRef;
+
+	VkRenderPassCreateInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassInfo.attachmentCount = 1;
+	renderPassInfo.pAttachments = &colorAttachment;
+	renderPassInfo.subpassCount = 1;
+	renderPassInfo.pSubpasses = &subpass;
+
+	return vkCreateRenderPass(lv->ldevice, &renderPassInfo, NULL, &lv->render_pass) == VK_SUCCESS;
+}
+
+int lv_pipeline_create(lv_state_s *lv)
+{
+	// TODO ???
 
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo = { 0 };
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -732,7 +777,7 @@ int lv_shader_stage_create(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurface
 	inputAssembly.primitiveRestartEnable = VK_FALSE;
 
 
-	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(pdevice, surface);
+	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->pdevice, lv->surface);
 
 	VkViewport viewport = { 0 };
 	viewport.x = 0.0f;
@@ -789,14 +834,37 @@ int lv_shader_stage_create(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurface
 	dynamicState.dynamicStateCount = 2;
 	dynamicState.pDynamicStates = dynamicStates;
 
-	VkPipelineLayout pipelineLayout;
-
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo = { 0 };
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 
-	if (vkCreatePipelineLayout(ldevice, &pipelineLayoutInfo, NULL, &pipelineLayout) != VK_SUCCESS) {
+	if (vkCreatePipelineLayout(lv->ldevice, &pipelineLayoutInfo, NULL, &lv->pipeline_layout) != VK_SUCCESS) {
 		return 0;
 	}
 
+	// URHGAI
+
+	const VkPipelineShaderStageCreateInfo shaderStages[] = {
+		lv->vert_shader->stage_info,
+		lv->frag_shader->stage_info
+	};
+	
+	VkGraphicsPipelineCreateInfo pipelineInfo = {};
+	pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	pipelineInfo.stageCount          = 2;
+	pipelineInfo.pStages             = shaderStages;
+	pipelineInfo.pVertexInputState   = &vertexInputInfo;
+	pipelineInfo.pInputAssemblyState = &inputAssembly;
+	pipelineInfo.pViewportState      = &viewportState;
+	pipelineInfo.pRasterizationState = &rasterizer;
+	pipelineInfo.pMultisampleState   = &multisampling;
+	pipelineInfo.pColorBlendState    = &colorBlending;
+	pipelineInfo.layout              = lv->pipeline_layout;
+	pipelineInfo.renderPass          = lv->render_pass;
+	pipelineInfo.subpass             = 0;
+
+	if (vkCreateGraphicsPipelines(lv->ldevice, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &lv->pipeline) != VK_SUCCESS) {
+		return 0;
+	}
+	
 	return 1;
 }
