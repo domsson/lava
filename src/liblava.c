@@ -4,7 +4,6 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-
 //
 // STRUCTS, ENUMS
 //
@@ -30,8 +29,9 @@ typedef struct lv_queue
 
 typedef struct lv_image_set
 {
-	VkImage  *images;
-	uint32_t  count;
+	VkImage     *images;
+	VkImageView *views;
+	uint32_t     count;
 } lv_image_set_s;
 
 typedef struct lv_image_set lv_image_set_s;
@@ -70,10 +70,14 @@ typedef struct lv_state
 	lv_shader_s      *frag_shader;
 	VkSwapchainKHR    swapchain;
 	lv_image_set_s    swapchain_images;
-	VkImageView      *imageviews;
 	VkRenderPass      render_pass;
 	VkPipelineLayout  pipeline_layout;
 	VkPipeline        pipeline;
+	VkFramebuffer    *framebuffers;
+	VkCommandPool     commandpool;
+	VkCommandBuffer  *commandbuffers;
+	VkSemaphore       image_available;
+	VkSemaphore       render_finished;
 } lv_state_s;
 
 //
@@ -98,8 +102,18 @@ lv_state_s *lv_init(lv_config_s *cfg)
 // const char* const* -> "a pointer to a constant pointer to a char constant"
 int lv_instance_create(VkInstance *instance, lv_name_set_s *extensions, lv_name_set_s *layers)
 {
+	// TODO This is technically optional 
+	VkApplicationInfo app = { 0 };
+	app.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+	app.pApplicationName   = "Hello Lava";
+	app.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+	app.pEngineName        = "No Engine";
+	app.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
+	app.apiVersion         = VK_API_VERSION_1_0;
+
 	VkInstanceCreateInfo info = { 0 };
 	info.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+	info.pApplicationInfo        = &app;
 	// Layers
 	info.enabledLayerCount       = layers ? layers->count : 0;
 	info.ppEnabledLayerNames     = layers ? layers->names : NULL;
@@ -457,36 +471,36 @@ int lv_get_swapchain_images(VkDevice ldevice, VkSwapchainKHR swapchain, lv_image
 	return (vkGetSwapchainImagesKHR(ldevice, swapchain, &images->count, images->images) == VK_SUCCESS);
 }
 
-int lv_create_swapchain_imageviews(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurfaceKHR surface, lv_image_set_s *images, VkImageView *image_views)
+int lv_create_swapchain_imageviews(lv_state_s *lv)
 {
-	image_views = malloc(sizeof(VkImageView) * images->count);
+	lv->swapchain_images.views = malloc(sizeof(VkImageView) * lv->swapchain_images.count);
 
-	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(pdevice, surface, 0);
+	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(lv->pdevice, lv->surface, 0);
 
 	int created = 0;
-	for (int i = 0; i < images->count; ++i)
+	for (int i = 0; i < lv->swapchain_images.count; ++i)
 	{
 		VkImageViewCreateInfo info = { 0 };
 		info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		info.image = images->images[i];
+		info.image    = lv->swapchain_images.images[i];
 		info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		info.format = format.format;
+		info.format   = format.format;
 		info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 		info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
 		info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
 		info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-		info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		info.subresourceRange.baseMipLevel = 0;
-		info.subresourceRange.levelCount = 1;
+		info.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+		info.subresourceRange.baseMipLevel   = 0;
+		info.subresourceRange.levelCount     = 1;
 		info.subresourceRange.baseArrayLayer = 0;
-		info.subresourceRange.layerCount = 1;
+		info.subresourceRange.layerCount     = 1;
 		
-		if (vkCreateImageView(ldevice, &info, NULL, &image_views[i]) == VK_SUCCESS)
+		if (vkCreateImageView(lv->ldevice, &info, NULL, &lv->swapchain_images.views[i]) == VK_SUCCESS)
 		{
 			++created;
 		}
 	}
-	return created == images->count;
+	return created == lv->swapchain_images.count;
 
 	// TODO the image views have to be destroyed somewhere, somehow, at the end
 	// vkDestroyImageView()
@@ -605,17 +619,20 @@ int lv_device_autoselect(lv_state_s *lv)
 }
 
 
-int lv_logical_device_create(VkDevice *ldevice, VkPhysicalDevice *pdevice, 
-		lv_queue_s *gqueue, lv_queue_s *pqueue, lv_name_set_s *extensions)
+//int lv_logical_device_create(VkDevice *ldevice, VkPhysicalDevice *pdevice, 
+//		lv_queue_s *gqueue, lv_queue_s *pqueue, lv_name_set_s *extensions)
+int lv_logical_device_create(lv_state_s *lv, lv_name_set_s *extensions)
 {
+	lv->gqueue->priority = 1.0f;
+
 	VkDeviceQueueCreateInfo queue_info = { 0 };
 	VkPhysicalDeviceFeatures device_features = { 0 };
 	VkDeviceCreateInfo device_info = { 0 };
 	
 	queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	queue_info.queueFamilyIndex = gqueue->index;
+	queue_info.queueFamilyIndex = lv->gqueue->index;
 	queue_info.queueCount = 1;
-	queue_info.pQueuePriorities = &gqueue->priority;
+	queue_info.pQueuePriorities = &lv->gqueue->priority;
 
 	device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 	device_info.pQueueCreateInfos = &queue_info;
@@ -624,15 +641,15 @@ int lv_logical_device_create(VkDevice *ldevice, VkPhysicalDevice *pdevice,
 	device_info.enabledExtensionCount = extensions->count;
 	device_info.ppEnabledExtensionNames = extensions->names;
 
-	if (vkCreateDevice(*pdevice, &device_info, NULL, ldevice) != VK_SUCCESS)
+	if (vkCreateDevice(lv->pdevice, &device_info, NULL, &lv->ldevice) != VK_SUCCESS)
 	{
 		return 0;
 	}
 
-	vkGetDeviceQueue(*ldevice, gqueue->index, 0, &gqueue->queue);
-	vkGetDeviceQueue(*ldevice, pqueue->index, 0, &pqueue->queue);
+	vkGetDeviceQueue(lv->ldevice, lv->gqueue->index, 0, &lv->gqueue->queue);
+	vkGetDeviceQueue(lv->ldevice, lv->pqueue->index, 0, &lv->pqueue->queue);
 
-	return gqueue->queue != VK_NULL_HANDLE && pqueue->queue != VK_NULL_HANDLE;
+	return lv->gqueue->queue != VK_NULL_HANDLE && lv->pqueue->queue != VK_NULL_HANDLE;
 }
 
 /*
@@ -728,11 +745,12 @@ int lv_shader_from_file_spv(VkDevice ldevice, const char *path, lv_shader_s *sha
 	return 1;
 }
 
+// https://vulkan-tutorial.com/en/Drawing_a_triangle/Graphics_pipeline_basics/Render_passes
 int lv_renderpass_create(lv_state_s *lv)
 {
 	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(lv->pdevice, lv->surface, 0);
 
-	VkAttachmentDescription colorAttachment = {};
+	VkAttachmentDescription colorAttachment = { 0 };
 	colorAttachment.format         = format.format;
 	colorAttachment.samples        = VK_SAMPLE_COUNT_1_BIT;
 	colorAttachment.loadOp         = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -742,108 +760,154 @@ int lv_renderpass_create(lv_state_s *lv)
 	colorAttachment.initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED;
 	colorAttachment.finalLayout    = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-	VkAttachmentReference colorAttachmentRef = {};
+	VkAttachmentReference colorAttachmentRef = { 0 };
 	colorAttachmentRef.attachment = 0;
-	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachmentRef.layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-	VkSubpassDescription subpass = {};
-	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	VkSubpassDescription subpass = { 0 };
+	subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &colorAttachmentRef;
+	subpass.pColorAttachments    = &colorAttachmentRef;
 
-	VkRenderPassCreateInfo renderPassInfo = {};
+	VkSubpassDependency dependency = { 0 };
+	dependency.srcSubpass    = VK_SUBPASS_EXTERNAL;
+	dependency.dstSubpass    = 0;
+	dependency.srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.srcAccessMask = 0;
+	dependency.dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+	VkRenderPassCreateInfo renderPassInfo = { 0 };
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 	renderPassInfo.attachmentCount = 1;
-	renderPassInfo.pAttachments = &colorAttachment;
-	renderPassInfo.subpassCount = 1;
-	renderPassInfo.pSubpasses = &subpass;
+	renderPassInfo.pAttachments    = &colorAttachment;
+	renderPassInfo.subpassCount    = 1;
+	renderPassInfo.pSubpasses      = &subpass;
+	renderPassInfo.dependencyCount = 1;
+	renderPassInfo.pDependencies   = &dependency;
 
 	return vkCreateRenderPass(lv->ldevice, &renderPassInfo, NULL, &lv->render_pass) == VK_SUCCESS;
 }
 
+// https://vulkan-tutorial.com/en/Drawing_a_triangle/Graphics_pipeline_basics/Fixed_functions
 int lv_pipeline_create(lv_state_s *lv)
 {
 	// TODO ???
 
+	// describes the format of the vertex data that will be passed to 
+	// the vertex shader
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo = { 0 };
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertexInputInfo.vertexBindingDescriptionCount = 0;
+	vertexInputInfo.vertexBindingDescriptionCount   = 0;
 	vertexInputInfo.vertexAttributeDescriptionCount = 0;
 
-
+	// describes two things: what kind of geometry will be drawn from
+	// the vertices and if primitive restart should be enabled
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly = { 0 };
 	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-	inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	inputAssembly.topology               = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-
+	// 
 	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->pdevice, lv->surface);
 
+	// A viewport basically describes the region of the framebuffer that 
+	// the output will be rendered to. This will almost always be (0, 0) 
+	// to (width, height)
 	VkViewport viewport = { 0 };
-	viewport.x = 0.0f;
-	viewport.y = 0.0f;
-	viewport.width = (float) caps.currentExtent.width;
-	viewport.height = (float) caps.currentExtent.height;
+	viewport.x        = 0.0f;
+	viewport.y        = 0.0f;
+	viewport.width    = (float) caps.currentExtent.width;
+	viewport.height   = (float) caps.currentExtent.height;
 	viewport.minDepth = 0.0f;
 	viewport.maxDepth = 1.0f;
 	
+	// scissor rectangles define in which regions pixels will actually 
+	// be stored. Any pixels outside the scissor rectangles will be 
+	// discarded by the rasterizer.
 	VkRect2D scissor = { 0 };
 	scissor.offset.x = 0;
         scissor.offset.y = 0;
-	scissor.extent = caps.currentExtent;
+	scissor.extent   = caps.currentExtent;
 
+	// viewport and scissor rectangle need to be combined into 
+	// a viewport state 
 	VkPipelineViewportStateCreateInfo viewportState = { 0 };
 	viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
 	viewportState.viewportCount = 1;
-	viewportState.pViewports = &viewport;
-	viewportState.scissorCount = 1;
-	viewportState.pScissors = &scissor;
+	viewportState.pViewports    = &viewport;
+	viewportState.scissorCount  = 1;
+	viewportState.pScissors     = &scissor;
 
+	// The rasterizer takes the geometry that is shaped by the vertices 
+	// from the vertex shader and turns it into fragments to be colored 
+	// by the fragment shader
 	VkPipelineRasterizationStateCreateInfo rasterizer = { 0 };
 	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-	rasterizer.depthClampEnable = VK_FALSE;
+	rasterizer.depthClampEnable        = VK_FALSE;
 	rasterizer.rasterizerDiscardEnable = VK_FALSE;
-	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizer.lineWidth = 1.0f;
-	rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-	rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
-	rasterizer.depthBiasEnable = VK_FALSE;
+	rasterizer.polygonMode             = VK_POLYGON_MODE_FILL;
+	rasterizer.lineWidth               = 1.0f;
+	rasterizer.cullMode                = VK_CULL_MODE_BACK_BIT;
+	rasterizer.frontFace               = VK_FRONT_FACE_CLOCKWISE;
+	rasterizer.depthBiasEnable         = VK_FALSE;
 
+	// multisampling, which is one of the ways to perform anti-aliasing. 
+	// It works by combining the fragment shader results of multiple 
+	// polygons that rasterize to the same pixel.
 	VkPipelineMultisampleStateCreateInfo multisampling = { 0 };
 	multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisampling.sampleShadingEnable = VK_FALSE;
+	multisampling.sampleShadingEnable  = VK_FALSE;
 	multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
+	// After a fragment shader has returned a color, it needs to be 
+	// combined with the color that is already in the framebuffer. 
+	// This transformation is known as color blending
+
+	// VkPipelineColorBlendAttachmentState contains the configuration
+	//  per attached framebuffer 	
 	VkPipelineColorBlendAttachmentState colorBlendAttachment = { 0 };
 	colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-	colorBlendAttachment.blendEnable = VK_FALSE;
+	colorBlendAttachment.blendEnable    = VK_FALSE;
 
+	// VkPipelineColorBlendStateCreateInfo contains the global color 
+	// blending settings
 	VkPipelineColorBlendStateCreateInfo colorBlending = { 0 };
 	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-	colorBlending.logicOpEnable = VK_FALSE;
+	colorBlending.logicOpEnable   = VK_FALSE;
 	colorBlending.attachmentCount = 1;
-	colorBlending.pAttachments = &colorBlendAttachment;
+	colorBlending.pAttachments    = &colorBlendAttachment;
 
-	VkDynamicState dynamicStates[] = {
+	VkDynamicState dynamicStates[] =
+	{
 	    VK_DYNAMIC_STATE_VIEWPORT,
 	    VK_DYNAMIC_STATE_LINE_WIDTH
 	};
 
+	// A limited amount of the state that we've specified in the previous 
+	// structs can actually be changed without recreating the pipeline. 
+	// Examples are the size of the viewport, line width and blend constants.
+	// If you want to do that, then you'll have to fill in 
+	// a VkPipelineDynamicStateCreateInfo structure
 	VkPipelineDynamicStateCreateInfo dynamicState = { 0 };
 	dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
 	dynamicState.dynamicStateCount = 2;
-	dynamicState.pDynamicStates = dynamicStates;
+	dynamicState.pDynamicStates    = dynamicStates;
 
+	// You can use uniform values in shaders, which can be changed at 
+	// drawing time to alter the behavior of your shaders without having 
+	// to recreate them. These uniform values need to be specified during 
+	// pipeline creation by creating a VkPipelineLayout object.
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo = { 0 };
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 
-	if (vkCreatePipelineLayout(lv->ldevice, &pipelineLayoutInfo, NULL, &lv->pipeline_layout) != VK_SUCCESS) {
+	if (vkCreatePipelineLayout(lv->ldevice, &pipelineLayoutInfo, NULL, &lv->pipeline_layout) != VK_SUCCESS)
+	{
 		return 0;
 	}
 
-	// URHGAI
-
-	const VkPipelineShaderStageCreateInfo shaderStages[] = {
+	const VkPipelineShaderStageCreateInfo shaderStages[] =
+	{
 		lv->vert_shader->stage_info,
 		lv->frag_shader->stage_info
 	};
@@ -862,9 +926,142 @@ int lv_pipeline_create(lv_state_s *lv)
 	pipelineInfo.renderPass          = lv->render_pass;
 	pipelineInfo.subpass             = 0;
 
-	if (vkCreateGraphicsPipelines(lv->ldevice, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &lv->pipeline) != VK_SUCCESS) {
+	if (vkCreateGraphicsPipelines(lv->ldevice, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &lv->pipeline) != VK_SUCCESS)
+	{
 		return 0;
 	}
 	
 	return 1;
 }
+
+int lv_create_framebuffers(lv_state_s *lv)
+{
+	lv->framebuffers = malloc(sizeof(VkFramebuffer) * lv->swapchain_images.count);
+	if (lv->framebuffers == NULL)
+	{
+		return 0;
+	}
+
+	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->pdevice, lv->surface);
+
+	for (size_t i = 0; i < lv->swapchain_images.count; ++i)
+	{
+		VkImageView attachments[] =
+		{
+			lv->swapchain_images.views[i]
+		};
+
+		VkFramebufferCreateInfo framebufferInfo = { 0 };
+		framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		framebufferInfo.renderPass      = lv->render_pass;
+		framebufferInfo.attachmentCount = 1;
+		framebufferInfo.pAttachments    = attachments;
+		framebufferInfo.width           = caps.currentExtent.width;
+		framebufferInfo.height          = caps.currentExtent.height;
+		framebufferInfo.layers          = 1;
+
+		if (vkCreateFramebuffer(lv->ldevice, &framebufferInfo, NULL, &lv->framebuffers[i]) != VK_SUCCESS)
+		{
+			return 0;
+		}
+	}
+	return 1;
+}
+
+// https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Command_buffers
+int lv_create_commandpool(lv_state_s *lv)
+{
+	VkCommandPoolCreateInfo poolInfo = { 0 };
+	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	poolInfo.queueFamilyIndex = lv->gqueue->index;
+
+	if (vkCreateCommandPool(lv->ldevice, &poolInfo, NULL, &lv->commandpool) != VK_SUCCESS)
+	{
+		return 0;
+	}
+
+	return 1;
+}
+
+// https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Command_buffers
+int lv_create_commandbuffers(lv_state_s *lv)
+{
+	lv->commandbuffers= malloc(sizeof(VkCommandBuffer) * lv->swapchain_images.count);
+	if (lv->commandbuffers == NULL)
+	{
+		return 0;
+	}
+
+	VkCommandBufferAllocateInfo allocInfo = { 0 };
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.commandPool        = lv->commandpool;
+	allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandBufferCount = (uint32_t) lv->swapchain_images.count;
+
+	if (vkAllocateCommandBuffers(lv->ldevice, &allocInfo, lv->commandbuffers) != VK_SUCCESS)
+	{
+		return 0;
+	}
+
+
+	for (size_t i = 0; i < lv->swapchain_images.count; ++i)
+	{
+		VkCommandBufferBeginInfo beginInfo = { 0 };
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+		if (vkBeginCommandBuffer(lv->commandbuffers[i], &beginInfo) != VK_SUCCESS)
+		{
+			return 0;
+		}
+	}
+	
+	// TODO
+	
+	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->pdevice, lv->surface);
+	VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+	VkOffset2D offset = { 0, 0 };
+
+	for (size_t i = 0; i < lv->swapchain_images.count; ++i)
+	{
+		VkRenderPassBeginInfo renderPassInfo = { 0 };
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		renderPassInfo.renderPass        = lv->render_pass;
+		renderPassInfo.framebuffer       = lv->framebuffers[i];
+		renderPassInfo.renderArea.offset = offset;
+		renderPassInfo.renderArea.extent = caps.currentExtent;
+		renderPassInfo.clearValueCount   = 1;
+		renderPassInfo.pClearValues      = &clearColor;
+
+		// TODO does this all belong here, even? the tutorial doesn't have it in a loop...
+		vkCmdBeginRenderPass(lv->commandbuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdBindPipeline(lv->commandbuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, lv->pipeline);
+		vkCmdDraw(lv->commandbuffers[i], 3, 1, 0, 0);
+		vkCmdEndRenderPass(lv->commandbuffers[i]);
+		if (vkEndCommandBuffer(lv->commandbuffers[i]) != VK_SUCCESS)
+		{
+			return 0;
+		}
+	}
+	
+	return 1;
+}
+
+// https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Rendering_and_presentation 
+int lv_create_semaphores(lv_state_s *lv)
+{
+	VkSemaphoreCreateInfo semaphoreInfo = { 0 };
+	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+	if (vkCreateSemaphore(lv->ldevice, &semaphoreInfo, NULL, &lv->image_available) != VK_SUCCESS)
+	{
+		return 0;
+	}
+	
+	if (vkCreateSemaphore(lv->ldevice, &semaphoreInfo, NULL, &lv->render_finished) != VK_SUCCESS)
+       	{
+		return 0;
+	}
+
+	return 1;
+}
+

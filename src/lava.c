@@ -12,9 +12,13 @@
 #define WINDOW_HEIGHT 600
 #define WINDOW_TITLE "LAVA LAVA"
 
-#define VALIDATION_LAYER "VK_LAYER_LUNARG_standard_validation" 
+#define VALIDATION_LAYER "VK_LAYER_KHRONOS_validation"
 
-int pipeline_shizzle(lv_state_s *lv)
+// TODO rename "lava" to "maar", someone else came out with a liblava (that actually works)
+//      at pretty much the same time (about a month later) as I started working on this :-)
+//      alternatively to "maar", "raba" (japanese katakana-kotoba for 'lava' is also okay)
+
+int setup_pipeline(lv_state_s *lv)
 {
 	if (lv_renderpass_create(lv) == 0)
 	{
@@ -105,7 +109,7 @@ int create_swapchain(lv_state_s *lv)
 
 int create_swapchain_imageviews(lv_state_s *lv)
 {
-	return lv_create_swapchain_imageviews(lv->pdevice, lv->ldevice, lv->surface, &lv->swapchain_images, lv->imageviews);
+	return lv_create_swapchain_imageviews(lv);
 }
 
 int select_vk_gpu(lv_state_s *lv)
@@ -121,11 +125,66 @@ int create_logical_device(lv_state_s *lv)
 	extensions.names = names;
 	extensions.count = 1;
 
-	lv_queue_s gqueue = { .priority = 1.0f };
-	lv_queue_s pqueue  = { 0 };
+	return lv_logical_device_create(lv, &extensions);
+}
 
-	return lv_logical_device_create(&lv->ldevice, &lv->pdevice,
-			&gqueue, &pqueue, &extensions); 
+int create_framebuffers(lv_state_s *lv)
+{
+	return lv_create_framebuffers(lv);
+}
+
+int create_commandpool(lv_state_s *lv)
+{
+	return lv_create_commandpool(lv);
+}
+
+int create_commandbuffers(lv_state_s *lv)
+{
+	return lv_create_commandbuffers(lv);
+}
+
+int create_semaphores(lv_state_s *lv)
+{
+	return lv_create_semaphores(lv);
+}
+
+void draw_frame(lv_state_s *lv)
+{
+	// TODO
+	uint32_t imageIndex;
+	vkAcquireNextImageKHR(lv->ldevice, lv->swapchain, UINT64_MAX, lv->image_available, VK_NULL_HANDLE, &imageIndex);
+
+	VkSemaphore waitSemaphores[]   = { lv->image_available };
+	VkSemaphore signalSemaphores[] = { lv->render_finished };
+	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+
+	VkSubmitInfo submitInfo = { 0 };
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.waitSemaphoreCount   = 1;
+	submitInfo.pWaitSemaphores      = waitSemaphores;
+	submitInfo.pWaitDstStageMask    = waitStages;
+	submitInfo.commandBufferCount   = 1;
+	submitInfo.pCommandBuffers      = &lv->commandbuffers[imageIndex];
+	submitInfo.signalSemaphoreCount = 1;
+	submitInfo.pSignalSemaphores    = signalSemaphores;
+	
+	if (vkQueueSubmit(lv->gqueue->queue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS)
+	{
+		fprintf(stderr, "vkQueueSubmit() failed\n");
+		return;
+	}
+
+	VkPresentInfoKHR presentInfo = { 0 };
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	presentInfo.waitSemaphoreCount = 1;
+	presentInfo.pWaitSemaphores = signalSemaphores;
+	
+	VkSwapchainKHR swapChains[] = { lv->swapchain };
+	presentInfo.swapchainCount = 1;
+	presentInfo.pSwapchains    = swapChains;
+	presentInfo.pImageIndices  = &imageIndex;
+
+	vkQueuePresentKHR(lv->pqueue->queue, &presentInfo);
 }
 
 void main_loop(lv_state_s *lv)
@@ -133,14 +192,14 @@ void main_loop(lv_state_s *lv)
 	while (!glfwWindowShouldClose(lv->window))
 	{
 		glfwPollEvents();
+		draw_frame(lv);
 	}
 }
 
 int main()
 {
 	// INIT
-
-	//struct lv lv = { 0 };
+	
 	lv_state_s *lv = lv_init(NULL);
 
 	if (create_glfw_window(lv) == 0)
@@ -211,9 +270,39 @@ int main()
 		return EXIT_FAILURE;
 	}
 	
-	if (pipeline_shizzle(lv) == 0)
+	if (setup_pipeline(lv) == 0)
 	{
 		fprintf(stderr, "Failed pipelining the render sausage accumulator pass\n");
+		return EXIT_FAILURE;
+	}
+
+	// https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Framebuffers
+	if (create_framebuffers(lv) == 0)
+	{
+		fprintf(stderr, "Failed creating framebuffers\n");
+		return EXIT_FAILURE;
+	}
+
+	// https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Command_buffers
+	if (create_commandpool(lv) == 0)
+	{
+		fprintf(stderr, "Failed creating command pool\n");
+		return EXIT_FAILURE;
+	}
+	
+	// https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Command_buffers
+	if (create_commandbuffers(lv) == 0)
+	{
+		fprintf(stderr, "Failed creating command buffers\n");
+		return EXIT_FAILURE;
+	}
+
+	// TODO
+	// https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Rendering_and_presentation
+
+	if (create_semaphores(lv) == 0)
+	{
+		fprintf(stderr, "Failed creating semaphores\n");
 		return EXIT_FAILURE;
 	}
 
@@ -232,11 +321,11 @@ int main()
 	int dspmc = lv_device_surface_present_mode_count(lv->pdevice, lv->surface);
 	fprintf(stdout, "Number of surface present modes available: %d\n", dspmc);
 
-	// MAIN LOOP
+	// LOOP
 
 	main_loop(lv);
 
-	// FREE SHIT
+	// FREE 
 
 	vkDestroySurfaceKHR(lv->instance, lv->surface, NULL);
 	vkDestroySwapchainKHR(lv->ldevice, lv->swapchain, NULL);
@@ -245,8 +334,6 @@ int main()
 
 	glfwDestroyWindow(lv->window);
 	glfwTerminate();
-
-	// BAI BAI
 
 	return EXIT_SUCCESS;
 }
