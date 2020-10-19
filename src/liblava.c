@@ -1114,6 +1114,11 @@ int lv_draw_frame(lv_state_s *lv)
 	presentInfo.pImageIndices  = &image_index;
 
 	vkQueuePresentKHR(lv->pqueue->queue, &presentInfo);
+
+	// TODO continue
+	// https://vulkan-tutorial.com/Drawing_a_triangle/Drawing/Rendering_and_presentation
+
+	vkQueueWaitIdle(lv->pqueue->queue);
 	return 1;
 }
 
@@ -1121,8 +1126,24 @@ int lv_free(lv_state_s *lv)
 {
 	// TODO free all the other things, too
 
-	vkDestroySurfaceKHR(lv->instance, lv->surface, NULL);
 	vkDestroySwapchainKHR(lv->ldevice, lv->swapchain, NULL);
+	vkDestroySurfaceKHR(lv->instance, lv->surface, NULL);
+	for (int i = 0; i < lv->framebuffers.count; ++i)
+	{
+		vkDestroyFramebuffer(lv->ldevice, lv->framebuffers.buffers[i], NULL);
+	}
+	vkDestroyCommandPool(lv->ldevice, lv->commandpool, NULL);
+	for (int i = 0; i < lv->swapchain_images.count; ++i)
+	{
+		vkDestroyImageView(lv->ldevice, lv->swapchain_images.views[i], NULL);
+	}
+	vkDestroySemaphore(lv->ldevice, lv->image_available, NULL);
+	vkDestroySemaphore(lv->ldevice, lv->render_finished, NULL);
+	vkDestroyPipelineLayout(lv->ldevice, lv->pipeline_layout, NULL);
+	vkDestroyRenderPass(lv->ldevice, lv->render_pass, NULL);
+	vkDestroyPipeline(lv->ldevice, lv->pipeline, NULL);
+	vkDestroyShaderModule(lv->ldevice, lv->frag_shader->module, NULL);
+	vkDestroyShaderModule(lv->ldevice, lv->vert_shader->module, NULL);
 	vkDestroyDevice(lv->ldevice, NULL);
 	vkDestroyInstance(lv->instance, NULL);
 

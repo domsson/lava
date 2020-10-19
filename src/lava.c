@@ -15,9 +15,8 @@
 #define SHADER_VERT "./shaders/default.vert.spv"
 #define SHADER_FRAG "./shaders/default.frag.spv"
 
-// TODO rename "lava" to "maar", someone else came out with a liblava (that actually works)
+// TODO rename "lava", because someone else came out with a liblava (that actually works)
 //      at pretty much the same time (about a month later) as I started working on this :-)
-//      alternatively to "maar", "raba" (japanese katakana-kotoba for 'lava' is also okay)
 
 int init_pipeline(lv_state_s *lv)
 {
