@@ -34,8 +34,6 @@ typedef struct lv_image_set
 	uint32_t     count;
 } lv_image_set_s;
 
-typedef struct lv_image_set lv_image_set_s;
-
 typedef enum lv_shader_type
 {
 	LV_SHADER_NONE, // type not specified or unknown
@@ -56,6 +54,18 @@ typedef struct lv_shader
 	VkPipelineShaderStageCreateInfo stage_info;
 } lv_shader_s;
 
+typedef struct lv_fbuffers
+{
+	VkFramebuffer *buffers;
+	uint32_t count;
+} lv_fbuffers_s;
+
+typedef struct lv_cbuffers
+{
+	VkCommandBuffer *buffers;
+	uint32_t         count;
+} lv_cbuffers_s;
+
 typedef struct lv_state
 {
 	lv_config_s      *config;
@@ -73,9 +83,9 @@ typedef struct lv_state
 	VkRenderPass      render_pass;
 	VkPipelineLayout  pipeline_layout;
 	VkPipeline        pipeline;
-	VkFramebuffer    *framebuffers;
+	lv_fbuffers_s     framebuffers;
 	VkCommandPool     commandpool;
-	VkCommandBuffer  *commandbuffers;
+	lv_cbuffers_s     commandbuffers;
 	VkSemaphore       image_available;
 	VkSemaphore       render_finished;
 } lv_state_s;
@@ -99,10 +109,11 @@ lv_state_s *lv_init(lv_config_s *cfg)
 	return lv;
 }
 
-// const char* const* -> "a pointer to a constant pointer to a char constant"
-int lv_instance_create(VkInstance *instance, lv_name_set_s *extensions, lv_name_set_s *layers)
+int lv_instance_create(lv_state_s *lv, lv_name_set_s *extensions, lv_name_set_s *layers)
 {
-	// TODO This is technically optional 
+	// some information about our application. This data is technically 
+	// optional, but it may provide some useful information to the driver 
+	// in order to optimize our specific application
 	VkApplicationInfo app = { 0 };
 	app.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 	app.pApplicationName   = "Hello Lava";
@@ -111,17 +122,17 @@ int lv_instance_create(VkInstance *instance, lv_name_set_s *extensions, lv_name_
 	app.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
 	app.apiVersion         = VK_API_VERSION_1_0;
 
+	// tells the Vulkan driver which global extensions and validation 
+	// layers we want to use
 	VkInstanceCreateInfo info = { 0 };
 	info.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 	info.pApplicationInfo        = &app;
-	// Layers
 	info.enabledLayerCount       = layers ? layers->count : 0;
 	info.ppEnabledLayerNames     = layers ? layers->names : NULL;
-	// Extensions
 	info.enabledExtensionCount   = extensions ? extensions->count : 0;
 	info.ppEnabledExtensionNames = extensions ? extensions->names : NULL;
 
-	return (vkCreateInstance(&info, NULL, instance) == VK_SUCCESS);
+	return (vkCreateInstance(&info, NULL, &lv->instance) == VK_SUCCESS);
 }
 
 int lv_print_extensions()
@@ -936,15 +947,16 @@ int lv_pipeline_create(lv_state_s *lv)
 
 int lv_create_framebuffers(lv_state_s *lv)
 {
-	lv->framebuffers = malloc(sizeof(VkFramebuffer) * lv->swapchain_images.count);
-	if (lv->framebuffers == NULL)
+	lv->framebuffers.count   = lv->swapchain_images.count;
+	lv->framebuffers.buffers = malloc(sizeof(VkFramebuffer) * lv->framebuffers.count);
+	if (lv->framebuffers.buffers == NULL)
 	{
 		return 0;
 	}
 
 	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->pdevice, lv->surface);
 
-	for (size_t i = 0; i < lv->swapchain_images.count; ++i)
+	for (size_t i = 0; i < lv->framebuffers.count; ++i)
 	{
 		VkImageView attachments[] =
 		{
@@ -960,7 +972,7 @@ int lv_create_framebuffers(lv_state_s *lv)
 		framebufferInfo.height          = caps.currentExtent.height;
 		framebufferInfo.layers          = 1;
 
-		if (vkCreateFramebuffer(lv->ldevice, &framebufferInfo, NULL, &lv->framebuffers[i]) != VK_SUCCESS)
+		if (vkCreateFramebuffer(lv->ldevice, &framebufferInfo, NULL, &lv->framebuffers.buffers[i]) != VK_SUCCESS)
 		{
 			return 0;
 		}
@@ -986,8 +998,9 @@ int lv_create_commandpool(lv_state_s *lv)
 // https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Command_buffers
 int lv_create_commandbuffers(lv_state_s *lv)
 {
-	lv->commandbuffers= malloc(sizeof(VkCommandBuffer) * lv->swapchain_images.count);
-	if (lv->commandbuffers == NULL)
+	lv->commandbuffers.count   = lv->swapchain_images.count;
+	lv->commandbuffers.buffers = malloc(sizeof(VkCommandBuffer) * lv->commandbuffers.count);
+	if (lv->commandbuffers.buffers == NULL)
 	{
 		return 0;
 	}
@@ -996,20 +1009,20 @@ int lv_create_commandbuffers(lv_state_s *lv)
 	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	allocInfo.commandPool        = lv->commandpool;
 	allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	allocInfo.commandBufferCount = (uint32_t) lv->swapchain_images.count;
+	allocInfo.commandBufferCount = (uint32_t) lv->commandbuffers.count;
 
-	if (vkAllocateCommandBuffers(lv->ldevice, &allocInfo, lv->commandbuffers) != VK_SUCCESS)
+	if (vkAllocateCommandBuffers(lv->ldevice, &allocInfo, lv->commandbuffers.buffers) != VK_SUCCESS)
 	{
 		return 0;
 	}
 
 
-	for (size_t i = 0; i < lv->swapchain_images.count; ++i)
+	for (size_t i = 0; i < lv->commandbuffers.count; ++i)
 	{
 		VkCommandBufferBeginInfo beginInfo = { 0 };
 		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-		if (vkBeginCommandBuffer(lv->commandbuffers[i], &beginInfo) != VK_SUCCESS)
+		if (vkBeginCommandBuffer(lv->commandbuffers.buffers[i], &beginInfo) != VK_SUCCESS)
 		{
 			return 0;
 		}
@@ -1026,18 +1039,18 @@ int lv_create_commandbuffers(lv_state_s *lv)
 		VkRenderPassBeginInfo renderPassInfo = { 0 };
 		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 		renderPassInfo.renderPass        = lv->render_pass;
-		renderPassInfo.framebuffer       = lv->framebuffers[i];
+		renderPassInfo.framebuffer       = lv->framebuffers.buffers[i];
 		renderPassInfo.renderArea.offset = offset;
 		renderPassInfo.renderArea.extent = caps.currentExtent;
 		renderPassInfo.clearValueCount   = 1;
 		renderPassInfo.pClearValues      = &clearColor;
 
 		// TODO does this all belong here, even? the tutorial doesn't have it in a loop...
-		vkCmdBeginRenderPass(lv->commandbuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-		vkCmdBindPipeline(lv->commandbuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, lv->pipeline);
-		vkCmdDraw(lv->commandbuffers[i], 3, 1, 0, 0);
-		vkCmdEndRenderPass(lv->commandbuffers[i]);
-		if (vkEndCommandBuffer(lv->commandbuffers[i]) != VK_SUCCESS)
+		vkCmdBeginRenderPass(lv->commandbuffers.buffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdBindPipeline(lv->commandbuffers.buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, lv->pipeline);
+		vkCmdDraw(lv->commandbuffers.buffers[i], 3, 1, 0, 0);
+		vkCmdEndRenderPass(lv->commandbuffers.buffers[i]);
+		if (vkEndCommandBuffer(lv->commandbuffers.buffers[i]) != VK_SUCCESS)
 		{
 			return 0;
 		}
@@ -1065,3 +1078,53 @@ int lv_create_semaphores(lv_state_s *lv)
 	return 1;
 }
 
+int lv_draw_frame(lv_state_s *lv)
+{
+	uint32_t image_index;
+	vkAcquireNextImageKHR(lv->ldevice, lv->swapchain, UINT64_MAX, lv->image_available, VK_NULL_HANDLE, &image_index);
+
+	VkSemaphore sem_wait[]   = { lv->image_available };
+	VkSemaphore sem_signal[] = { lv->render_finished };
+	
+	VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+
+	VkSubmitInfo submit_info = { 0 };
+	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit_info.waitSemaphoreCount   = 1;
+	submit_info.pWaitSemaphores      = sem_wait;
+	submit_info.pWaitDstStageMask    = wait_stages;
+	submit_info.commandBufferCount   = 1; // `lv->commandbuffers.count` = segfault (why?)
+	submit_info.pCommandBuffers      = &lv->commandbuffers.buffers[image_index];
+	submit_info.signalSemaphoreCount = 1;
+	submit_info.pSignalSemaphores    = sem_signal;
+
+	if (vkQueueSubmit(lv->gqueue->queue, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS)
+	{
+		return 0;
+	}
+
+	VkPresentInfoKHR presentInfo = { 0 };
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	presentInfo.waitSemaphoreCount = 1;
+	presentInfo.pWaitSemaphores    = sem_signal;
+
+	VkSwapchainKHR swapChains[] = { lv->swapchain };
+	presentInfo.swapchainCount = 1;
+	presentInfo.pSwapchains    = swapChains;
+	presentInfo.pImageIndices  = &image_index;
+
+	vkQueuePresentKHR(lv->pqueue->queue, &presentInfo);
+	return 1;
+}
+
+int lv_free(lv_state_s *lv)
+{
+	// TODO free all the other things, too
+
+	vkDestroySurfaceKHR(lv->instance, lv->surface, NULL);
+	vkDestroySwapchainKHR(lv->ldevice, lv->swapchain, NULL);
+	vkDestroyDevice(lv->ldevice, NULL);
+	vkDestroyInstance(lv->instance, NULL);
+
+	return 1;
+}
