@@ -6,6 +6,9 @@
 #include <vulkan/vulkan.h>
 #include "liblava.c"
 
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
 #define WINDOW_WIDTH  800
 #define WINDOW_HEIGHT 600
 #define WINDOW_TITLE  "LAVA LAVA"
@@ -35,17 +38,17 @@ int init_pipeline(lv_state_s *lv)
 
 int load_shaders(lv_state_s *lv)
 {
-	if (lv_shader_from_file_spv(lv->ldevice, SHADER_VERT, lv->vert_shader, LV_SHADER_VERT) == 0)
+	if (lv_shader_from_file_spv(lv->ldevice, SHADER_VERT, &lv->vert_shader, LV_SHADER_VERT) == 0)
 	{
 		return 0;
 	}
 
-	if (lv_shader_from_file_spv(lv->ldevice, SHADER_FRAG, lv->frag_shader, LV_SHADER_FRAG) == 0)
+	if (lv_shader_from_file_spv(lv->ldevice, SHADER_FRAG, &lv->frag_shader, LV_SHADER_FRAG) == 0)
 	{
 		return 0;
 	}
 
-	if (lv_shader_stage_create(lv->pdevice, lv->ldevice, lv->surface, lv->vert_shader, lv->frag_shader) == 0)
+	if (lv_shader_stage_create(lv->pdevice, lv->ldevice, lv->surface, &lv->vert_shader, &lv->frag_shader) == 0)
 	{
 		return 0;
 	}
@@ -108,7 +111,7 @@ int init_surface(lv_state_s *lv)
 
 int init_swapchain(lv_state_s *lv)
 {
-	if (lv_create_swapchain(lv->pdevice, lv->surface, lv->ldevice, lv->gqueue, lv->pqueue, &lv->swapchain) == 0)
+	if (lv_create_swapchain(lv->pdevice, lv->surface, lv->ldevice, &lv->gqueue, &lv->pqueue, &lv->swapchain) == 0)
 	{
 		return 0;
 	}

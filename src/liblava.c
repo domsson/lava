@@ -1,8 +1,6 @@
 #include <vulkan/vulkan.h>
 #include <sys/stat.h>
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 
 //
 // STRUCTS, ENUMS
@@ -69,15 +67,15 @@ typedef struct lv_cbuffers
 typedef struct lv_state
 {
 	lv_config_s      *config;
-	GLFWwindow       *window;                // TODO obviously, this doesn't belong here
+	void             *window;
 	VkInstance        instance;
 	VkPhysicalDevice  pdevice;
 	VkDevice          ldevice;
-	lv_queue_s       *gqueue;
-	lv_queue_s       *pqueue;
+	lv_queue_s        gqueue;
+	lv_queue_s        pqueue;
 	VkSurfaceKHR      surface;
-	lv_shader_s      *vert_shader;
-	lv_shader_s      *frag_shader;
+	lv_shader_s       vert_shader;
+	lv_shader_s       frag_shader;
 	VkSwapchainKHR    swapchain;
 	lv_image_set_s    swapchain_images;
 	VkRenderPass      render_pass;
@@ -99,13 +97,6 @@ lv_state_s *lv_init(lv_config_s *cfg)
 	lv_state_s *lv = malloc(sizeof(lv_state_s));
 	// TODO copy this instead, so the caller can free their thingy if they want
 	lv->config = cfg;
-
-	// TODO do the following actually need to be pointers?
-	lv->gqueue = malloc(sizeof(lv_queue_s));
-	lv->pqueue = malloc(sizeof(lv_queue_s));
-	lv->vert_shader = malloc(sizeof(lv_shader_s));
-	lv->frag_shader = malloc(sizeof(lv_shader_s));
-
 	return lv;
 }
 
@@ -482,6 +473,27 @@ int lv_get_swapchain_images(VkDevice ldevice, VkSwapchainKHR swapchain, lv_image
 	return (vkGetSwapchainImagesKHR(ldevice, swapchain, &images->count, images->images) == VK_SUCCESS);
 }
 
+static VkResult
+lv_create_imageview(VkDevice device, VkImage image, VkSurfaceFormatKHR format, VkImageView *imageview)
+{
+	VkImageViewCreateInfo info = { 0 };
+	info.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	info.image    = image;
+	info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	info.format   = format.format;
+	info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+	info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+	info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+	info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+	info.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+	info.subresourceRange.baseMipLevel   = 0;
+	info.subresourceRange.levelCount     = 1;
+	info.subresourceRange.baseArrayLayer = 0;
+	info.subresourceRange.layerCount     = 1;
+		
+	return vkCreateImageView(device, &info, NULL, imageview);
+}
+
 int lv_create_swapchain_imageviews(lv_state_s *lv)
 {
 	lv->swapchain_images.views = malloc(sizeof(VkImageView) * lv->swapchain_images.count);
@@ -491,30 +503,16 @@ int lv_create_swapchain_imageviews(lv_state_s *lv)
 	int created = 0;
 	for (int i = 0; i < lv->swapchain_images.count; ++i)
 	{
-		VkImageViewCreateInfo info = { 0 };
-		info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		info.image    = lv->swapchain_images.images[i];
-		info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		info.format   = format.format;
-		info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-		info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-		info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-		info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-		info.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-		info.subresourceRange.baseMipLevel   = 0;
-		info.subresourceRange.levelCount     = 1;
-		info.subresourceRange.baseArrayLayer = 0;
-		info.subresourceRange.layerCount     = 1;
-		
-		if (vkCreateImageView(lv->ldevice, &info, NULL, &lv->swapchain_images.views[i]) == VK_SUCCESS)
+		VkImage      image     =  lv->swapchain_images.images[i];
+		VkImageView *imageview = &lv->swapchain_images.views[i];
+
+		if (lv_create_imageview(lv->ldevice, image, format, imageview) == VK_SUCCESS)
 		{
 			++created;
 		}
 	}
+	
 	return created == lv->swapchain_images.count;
-
-	// TODO the image views have to be destroyed somewhere, somehow, at the end
-	// vkDestroyImageView()
 }
 
 /*
@@ -619,8 +617,8 @@ int lv_device_autoselect(lv_state_s *lv)
 		{
 			device_score = score;
 			lv->pdevice = devices[i];
-			lv->gqueue->index = gqueue_index;
-			lv->pqueue->index = pqueue_index;
+			lv->gqueue.index = gqueue_index;
+			lv->pqueue.index = pqueue_index;
 			break;
 		}
 	}
@@ -634,16 +632,16 @@ int lv_device_autoselect(lv_state_s *lv)
 //		lv_queue_s *gqueue, lv_queue_s *pqueue, lv_name_set_s *extensions)
 int lv_logical_device_create(lv_state_s *lv, lv_name_set_s *extensions)
 {
-	lv->gqueue->priority = 1.0f;
+	lv->gqueue.priority = 1.0f;
 
 	VkDeviceQueueCreateInfo queue_info = { 0 };
 	VkPhysicalDeviceFeatures device_features = { 0 };
 	VkDeviceCreateInfo device_info = { 0 };
 	
 	queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	queue_info.queueFamilyIndex = lv->gqueue->index;
+	queue_info.queueFamilyIndex = lv->gqueue.index;
 	queue_info.queueCount = 1;
-	queue_info.pQueuePriorities = &lv->gqueue->priority;
+	queue_info.pQueuePriorities = &lv->gqueue.priority;
 
 	device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 	device_info.pQueueCreateInfos = &queue_info;
@@ -657,10 +655,10 @@ int lv_logical_device_create(lv_state_s *lv, lv_name_set_s *extensions)
 		return 0;
 	}
 
-	vkGetDeviceQueue(lv->ldevice, lv->gqueue->index, 0, &lv->gqueue->queue);
-	vkGetDeviceQueue(lv->ldevice, lv->pqueue->index, 0, &lv->pqueue->queue);
+	vkGetDeviceQueue(lv->ldevice, lv->gqueue.index, 0, &lv->gqueue.queue);
+	vkGetDeviceQueue(lv->ldevice, lv->pqueue.index, 0, &lv->pqueue.queue);
 
-	return lv->gqueue->queue != VK_NULL_HANDLE && lv->pqueue->queue != VK_NULL_HANDLE;
+	return lv->gqueue.queue != VK_NULL_HANDLE && lv->pqueue.queue != VK_NULL_HANDLE;
 }
 
 /*
@@ -919,8 +917,8 @@ int lv_pipeline_create(lv_state_s *lv)
 
 	const VkPipelineShaderStageCreateInfo shaderStages[] =
 	{
-		lv->vert_shader->stage_info,
-		lv->frag_shader->stage_info
+		lv->vert_shader.stage_info,
+		lv->frag_shader.stage_info
 	};
 	
 	VkGraphicsPipelineCreateInfo pipelineInfo = {};
@@ -945,6 +943,23 @@ int lv_pipeline_create(lv_state_s *lv)
 	return 1;
 }
 
+static VkResult
+lv_create_framebuffer(VkDevice device, VkRenderPass renderpass, VkImageView view, VkExtent2D extent, VkFramebuffer *buffer)
+{
+	VkImageView attachments[] = { view };
+
+	VkFramebufferCreateInfo info = { 0 };
+	info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	info.renderPass      = renderpass;
+	info.attachmentCount = 1;
+	info.pAttachments    = attachments;
+	info.width           = extent.width;
+	info.height          = extent.height;
+	info.layers          = 1;
+
+	return vkCreateFramebuffer(device, &info, NULL, buffer);
+}
+
 int lv_create_framebuffers(lv_state_s *lv)
 {
 	lv->framebuffers.count   = lv->swapchain_images.count;
@@ -956,23 +971,16 @@ int lv_create_framebuffers(lv_state_s *lv)
 
 	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->pdevice, lv->surface);
 
+	VkExtent2D     extent = caps.currentExtent;
+	VkImageView    view = 0;
+	VkFramebuffer *fb   = NULL;
+
 	for (size_t i = 0; i < lv->framebuffers.count; ++i)
 	{
-		VkImageView attachments[] =
-		{
-			lv->swapchain_images.views[i]
-		};
+		view =  lv->swapchain_images.views[i];
+		fb   = &lv->framebuffers.buffers[i];
 
-		VkFramebufferCreateInfo framebufferInfo = { 0 };
-		framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-		framebufferInfo.renderPass      = lv->render_pass;
-		framebufferInfo.attachmentCount = 1;
-		framebufferInfo.pAttachments    = attachments;
-		framebufferInfo.width           = caps.currentExtent.width;
-		framebufferInfo.height          = caps.currentExtent.height;
-		framebufferInfo.layers          = 1;
-
-		if (vkCreateFramebuffer(lv->ldevice, &framebufferInfo, NULL, &lv->framebuffers.buffers[i]) != VK_SUCCESS)
+		if (lv_create_framebuffer(lv->ldevice, lv->render_pass, view, extent, fb) != VK_SUCCESS)
 		{
 			return 0;
 		}
@@ -985,7 +993,7 @@ int lv_create_commandpool(lv_state_s *lv)
 {
 	VkCommandPoolCreateInfo poolInfo = { 0 };
 	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-	poolInfo.queueFamilyIndex = lv->gqueue->index;
+	poolInfo.queueFamilyIndex = lv->gqueue.index;
 
 	if (vkCreateCommandPool(lv->ldevice, &poolInfo, NULL, &lv->commandpool) != VK_SUCCESS)
 	{
@@ -1098,7 +1106,7 @@ int lv_draw_frame(lv_state_s *lv)
 	submit_info.signalSemaphoreCount = 1;
 	submit_info.pSignalSemaphores    = sem_signal;
 
-	if (vkQueueSubmit(lv->gqueue->queue, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS)
+	if (vkQueueSubmit(lv->gqueue.queue, 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS)
 	{
 		return 0;
 	}
@@ -1113,12 +1121,12 @@ int lv_draw_frame(lv_state_s *lv)
 	presentInfo.pSwapchains    = swapChains;
 	presentInfo.pImageIndices  = &image_index;
 
-	vkQueuePresentKHR(lv->pqueue->queue, &presentInfo);
+	vkQueuePresentKHR(lv->pqueue.queue, &presentInfo);
 
 	// TODO continue
 	// https://vulkan-tutorial.com/Drawing_a_triangle/Drawing/Rendering_and_presentation
 
-	vkQueueWaitIdle(lv->pqueue->queue);
+	vkQueueWaitIdle(lv->pqueue.queue);
 	return 1;
 }
 
@@ -1142,8 +1150,8 @@ int lv_free(lv_state_s *lv)
 	vkDestroyPipelineLayout(lv->ldevice, lv->pipeline_layout, NULL);
 	vkDestroyRenderPass(lv->ldevice, lv->render_pass, NULL);
 	vkDestroyPipeline(lv->ldevice, lv->pipeline, NULL);
-	vkDestroyShaderModule(lv->ldevice, lv->frag_shader->module, NULL);
-	vkDestroyShaderModule(lv->ldevice, lv->vert_shader->module, NULL);
+	vkDestroyShaderModule(lv->ldevice, lv->frag_shader.module, NULL);
+	vkDestroyShaderModule(lv->ldevice, lv->vert_shader.module, NULL);
 	vkDestroyDevice(lv->ldevice, NULL);
 	vkDestroyInstance(lv->instance, NULL);
 
