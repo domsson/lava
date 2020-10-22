@@ -681,12 +681,8 @@ int lv_load_shader_spv(const char* path, lv_shader_s *shader)
 		return 0;
 	}
 
-	// Try to allocate memory for shader data
+	// Allocate memory for shader data
 	shader->data = malloc(sizeof(char) * st.st_size); // TODO needs a free somewhere
-	if (shader->data == NULL)
-	{
-		return 0;
-	}
 
 	// Check if number of bytes read is different from shader file size
 	if (fread(shader->data, 1, st.st_size, file) != st.st_size)
@@ -962,10 +958,6 @@ int lv_create_framebuffers(lv_state_s *lv)
 {
 	lv->framebuffers.count = lv->swapchain_images.count;
 	lv->framebuffers.fbs   = malloc(sizeof(VkFramebuffer) * lv->framebuffers.count);
-	if (lv->framebuffers.fbs == NULL)
-	{
-		return 0;
-	}
 
 	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->gpu, lv->surface);
 
@@ -1007,10 +999,6 @@ int lv_create_commandbuffers(lv_state_s *lv)
 {
 	lv->commandbuffers.count = lv->swapchain_images.count;
 	lv->commandbuffers.cbs   = malloc(sizeof(VkCommandBuffer) * lv->commandbuffers.count);
-	if (lv->commandbuffers.cbs == NULL)
-	{
-		return 0;
-	}
 
 	VkCommandBufferAllocateInfo cba_info = { 0 };
 	cba_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
