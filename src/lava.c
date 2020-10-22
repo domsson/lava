@@ -38,17 +38,17 @@ int init_pipeline(lv_state_s *lv)
 
 int load_shaders(lv_state_s *lv)
 {
-	if (lv_shader_from_file_spv(lv->ldevice, SHADER_VERT, &lv->vert_shader, LV_SHADER_VERT) == 0)
+	if (lv_shader_from_file_spv(lv->device, SHADER_VERT, &lv->vert_shader, LV_SHADER_VERT) == 0)
 	{
 		return 0;
 	}
 
-	if (lv_shader_from_file_spv(lv->ldevice, SHADER_FRAG, &lv->frag_shader, LV_SHADER_FRAG) == 0)
+	if (lv_shader_from_file_spv(lv->device, SHADER_FRAG, &lv->frag_shader, LV_SHADER_FRAG) == 0)
 	{
 		return 0;
 	}
 
-	if (lv_shader_stage_create(lv->pdevice, lv->ldevice, lv->surface, &lv->vert_shader, &lv->frag_shader) == 0)
+	if (lv_shader_stage_create(lv->gpu, lv->device, lv->surface, &lv->vert_shader, &lv->frag_shader) == 0)
 	{
 		return 0;
 	}
@@ -111,12 +111,12 @@ int init_surface(lv_state_s *lv)
 
 int init_swapchain(lv_state_s *lv)
 {
-	if (lv_create_swapchain(lv->pdevice, lv->surface, lv->ldevice, &lv->gqueue, &lv->pqueue, &lv->swapchain) == 0)
+	if (lv_create_swapchain(lv->gpu, lv->surface, lv->device, &lv->gqueue, &lv->pqueue, &lv->swapchain) == 0)
 	{
 		return 0;
 	}
 
-	if (lv_get_swapchain_images(lv->ldevice, lv->swapchain, &lv->swapchain_images) == 0)
+	if (lv_get_swapchain_images(lv->device, lv->swapchain, &lv->swapchain_images) == 0)
 	{
 		return 0;
 	}
@@ -136,12 +136,12 @@ int init_gpu(lv_state_s *lv)
 
 int init_physical_device(lv_state_s *lv)
 {
-	if (lv_device_surface_has_format(lv->pdevice, lv->surface, VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, NULL) == 0)
+	if (lv_device_surface_has_format(lv->gpu, lv->surface, VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, NULL) == 0)
 	{
 		return 0;
 	}
 
-	if (lv_device_surface_has_present_mode(lv->pdevice, lv->surface, VK_PRESENT_MODE_FIFO_KHR, NULL) == 0)
+	if (lv_device_surface_has_present_mode(lv->gpu, lv->surface, VK_PRESENT_MODE_FIFO_KHR, NULL) == 0)
 	{
 		return 0;
 	}
@@ -201,52 +201,52 @@ int main()
 {
 	// INIT
 	
-	lv_state_s *lv = lv_init(NULL);
+	lv_state_s lv = { 0 };
 
 	// https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Base_code
-	if (init_window(lv) == 0)
+	if (init_window(&lv) == 0)
 	{
 		fprintf(stderr, "Could not create GLFW window\n");
 		return EXIT_FAILURE;
 	}
 
 	// https://vulkan-tutorial.com/en/Drawing_a_triangle/Setup/Validation_layers
-	if (init_validation(lv) == 0)
+	if (init_validation(&lv) == 0)
 	{
 		fprintf(stderr, "Could not initialize validation layer\n");
 		return EXIT_FAILURE;
 	}
 	
 	// https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Instance	
-	if (init_instance(lv) == 0)
+	if (init_instance(&lv) == 0)
 	{
 		fprintf(stderr, "Could not create Vulkan instance\n");
 		return EXIT_FAILURE;
 	}
 
 	// https://vulkan-tutorial.com/Drawing_a_triangle/Presentation/Window_surface
-	if (init_surface(lv) == 0)
+	if (init_surface(&lv) == 0)
 	{
 		fprintf(stderr, "Could not create drawing surface\n");
 		return EXIT_FAILURE;
 	}
 
 	// https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Physical_devices_and_queue_families
-	if (init_gpu(lv) == 0)
+	if (init_gpu(&lv) == 0)
 	{
 		fprintf(stderr, "Could not find a GPU with Vulkan support\n");
 		return EXIT_FAILURE;
 	}
 
 	// https://vulkan-tutorial.com/Drawing_a_triangle/Setup/Physical_devices_and_queue_families
-	if (init_physical_device(lv) == 0)
+	if (init_physical_device(&lv) == 0)
 	{
 		fprintf(stderr, "Could not initialize physical device\n");
 		return EXIT_FAILURE;
 	}
 	
 	// https://vulkan-tutorial.com/en/Drawing_a_triangle/Setup/Logical_device_and_queues
-	if (init_logical_device(lv) == 0)
+	if (init_logical_device(&lv) == 0)
 	{
 		fprintf(stderr, "Could not create logical device\n");
 		return EXIT_FAILURE;
@@ -254,14 +254,14 @@ int main()
 
 	// https://vulkan-tutorial.com/Drawing_a_triangle/Presentation/Swap_chain
 	// https://vulkan-tutorial.com/Drawing_a_triangle/Presentation/Image_views
-	if (init_swapchain(lv) == 0)
+	if (init_swapchain(&lv) == 0)
 	{
 		fprintf(stderr, "Could not create swapchain\n");
 		return EXIT_FAILURE;
 	}
 
 	// https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Shader_modules
-	if (load_shaders(lv) == 0)
+	if (load_shaders(&lv) == 0)
 	{
 		fprintf(stderr, "Failed loading shaders\n");
 		return EXIT_FAILURE;
@@ -269,35 +269,35 @@ int main()
 	
 	// https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Render_passes
 	// https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Fixed_functions
-	if (init_pipeline(lv) == 0)
+	if (init_pipeline(&lv) == 0)
 	{
 		fprintf(stderr, "Failed pipelining the render sausage accumulator pass\n");
 		return EXIT_FAILURE;
 	}
 
 	// https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Framebuffers
-	if (init_framebuffers(lv) == 0)
+	if (init_framebuffers(&lv) == 0)
 	{
 		fprintf(stderr, "Failed creating framebuffers\n");
 		return EXIT_FAILURE;
 	}
 
 	// https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Command_buffers
-	if (init_commandpool(lv) == 0)
+	if (init_commandpool(&lv) == 0)
 	{
 		fprintf(stderr, "Failed creating command pool\n");
 		return EXIT_FAILURE;
 	}
 	
 	// https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Command_buffers
-	if (init_commandbuffers(lv) == 0)
+	if (init_commandbuffers(&lv) == 0)
 	{
 		fprintf(stderr, "Failed creating command buffers\n");
 		return EXIT_FAILURE;
 	}
 
 	// https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Rendering_and_presentation
-	if (init_semaphores(lv) == 0)
+	if (init_semaphores(&lv) == 0)
 	{
 		fprintf(stderr, "Failed creating semaphores\n");
 		return EXIT_FAILURE;
@@ -306,7 +306,7 @@ int main()
 	// TODO continue the tutorial
 
 	fprintf(stdout, "Devices available:\n");
-	lv_print_devices(lv->instance);
+	lv_print_devices(lv.instance);
 
 	fprintf(stdout, "Extensions available:\n");
 	lv_print_extensions();
@@ -314,20 +314,19 @@ int main()
 	fprintf(stdout, "Layers available:\n");
 	lv_print_layers();
 
-	int dsfc = lv_device_surface_format_count(lv->pdevice, lv->surface);
+	int dsfc = lv_device_surface_format_count(lv.gpu, lv.surface);
 	fprintf(stdout, "Number of surface formats available: %d\n", dsfc);
 
-	int dspmc = lv_device_surface_present_mode_count(lv->pdevice, lv->surface);
+	int dspmc = lv_device_surface_present_mode_count(lv.gpu, lv.surface);
 	fprintf(stdout, "Number of surface present modes available: %d\n", dspmc);
 
 	// LOOP
 
-	loop(lv);
+	loop(&lv);
 
 	// FREE 
 
-	kill(lv);
-	free(lv);
+	kill(&lv);
 
 	// CIAO
 	

@@ -1,38 +1,11 @@
 #include <vulkan/vulkan.h>
-#include <sys/stat.h>
-
+#include <sys/stat.h>          // stat(), struct stat
 
 //
-// STRUCTS, ENUMS
+// ENUMS
 //
 
-typedef struct lv_config
-{
-	int validation;
-	// func pointer to debug_callback_function for validation message handling
-} lv_config_s;
-
-typedef struct lv_name_set
-{
-	const char* const* names; // same as const char** ?
-	uint32_t           count;
-} lv_name_set_s;
-
-typedef struct lv_queue
-{
-	VkQueue  queue;
-	uint32_t index;
-	float priority;
-} lv_queue_s;
-
-typedef struct lv_image_set
-{
-	VkImage     *images;
-	VkImageView *views;
-	uint32_t     count;
-} lv_image_set_s;
-
-typedef enum lv_shader_type
+enum lv_shader_type
 {
 	LV_SHADER_NONE, // type not specified or unknown
 	LV_SHADER_VERT, // vertex
@@ -41,36 +14,70 @@ typedef enum lv_shader_type
 	LV_SHADER_GEOM, // geometry
 	LV_SHADER_FRAG, // fragment
 	LV_SHADER_COMP  // compute
-} lv_shader_type_e;
+};
 
-typedef struct lv_shader
+typedef enum lv_shader_type lv_shader_type_e;
+
+//
+// STRUCTS
+// 
+
+struct lv_name_set
+{
+	const char* const* names; // same as const char** ?
+	uint32_t           count;
+};
+
+typedef struct lv_name_set lv_name_set_s;
+
+struct lv_queue
+{
+	VkQueue  queue;
+	uint32_t index;
+	float priority;
+};
+
+typedef struct lv_queue lv_queue_s;
+
+struct lv_image_set
+{
+	VkImage     *images;
+	VkImageView *views;
+	uint32_t     count;
+};
+
+typedef struct lv_image_set lv_image_set_s;
+
+
+struct lv_shader
 {
 	uint32_t         *data;		// SPIR-V bytecode
 	size_t            size;		// size of bytecode
 	lv_shader_type_e  type;		// shader type (vertex, fragment, ...)
 	VkShaderModule    module;	// vulkan shader module 
-	VkPipelineShaderStageCreateInfo stage_info;
-} lv_shader_s;
+	VkPipelineShaderStageCreateInfo info;
+};
 
-typedef struct lv_fbuffers
-{
-	VkFramebuffer *buffers;
-	uint32_t count;
-} lv_fbuffers_s;
+typedef struct lv_shader lv_shader_s;
 
-typedef struct lv_cbuffers
+struct lv_buffer_set
 {
-	VkCommandBuffer *buffers;
-	uint32_t         count;
-} lv_cbuffers_s;
+	union
+	{
+		VkFramebuffer   *fbs;
+		VkCommandBuffer *cbs;
+	};
+	uint32_t  count;
+};
 
-typedef struct lv_state
+typedef struct lv_buffer_set lv_buffer_set_s;
+
+struct lv_state
 {
-	lv_config_s      *config;
 	void             *window;
 	VkInstance        instance;
-	VkPhysicalDevice  pdevice;
-	VkDevice          ldevice;
+	VkPhysicalDevice  gpu;
+	VkDevice          device;
 	lv_queue_s        gqueue;
 	lv_queue_s        pqueue;
 	VkSurfaceKHR      surface;
@@ -81,24 +88,18 @@ typedef struct lv_state
 	VkRenderPass      render_pass;
 	VkPipelineLayout  pipeline_layout;
 	VkPipeline        pipeline;
-	lv_fbuffers_s     framebuffers;
+	lv_buffer_set_s   framebuffers;
 	VkCommandPool     commandpool;
-	lv_cbuffers_s     commandbuffers;
+	lv_buffer_set_s   commandbuffers;
 	VkSemaphore       image_available;
 	VkSemaphore       render_finished;
-} lv_state_s;
+};
+
+typedef struct lv_state lv_state_s;
 
 //
 // FUNCTIONS
 //
-
-lv_state_s *lv_init(lv_config_s *cfg)
-{
-	lv_state_s *lv = malloc(sizeof(lv_state_s));
-	// TODO copy this instead, so the caller can free their thingy if they want
-	lv->config = cfg;
-	return lv;
-}
 
 int lv_instance_create(lv_state_s *lv, lv_name_set_s *extensions, lv_name_set_s *layers)
 {
@@ -426,12 +427,12 @@ int lv_device_surface_has_present_mode(VkPhysicalDevice device, VkSurfaceKHR sur
 	return found;
 }
 
-int lv_create_swapchain(VkPhysicalDevice pdevice, VkSurfaceKHR surface, VkDevice ldevice,
+int lv_create_swapchain(VkPhysicalDevice gpu, VkSurfaceKHR surface, VkDevice device,
 		lv_queue_s *gqueue, lv_queue_s *pqueue, VkSwapchainKHR *swapchain)
 {
 	
-	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(pdevice, surface);
-	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(pdevice, surface, 0);
+	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(gpu, surface);
+	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(gpu, surface, 0);
 
 	VkSwapchainCreateInfoKHR info = { 0 };
 	info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -462,15 +463,15 @@ int lv_create_swapchain(VkPhysicalDevice pdevice, VkSurfaceKHR surface, VkDevice
 	info.presentMode = VK_PRESENT_MODE_FIFO_KHR; // TODO
 	info.clipped = VK_TRUE;
 
-	return (vkCreateSwapchainKHR(ldevice, &info, NULL, swapchain) == VK_SUCCESS);
+	return (vkCreateSwapchainKHR(device, &info, NULL, swapchain) == VK_SUCCESS);
 }
 
-int lv_get_swapchain_images(VkDevice ldevice, VkSwapchainKHR swapchain, lv_image_set_s *images)
+int lv_get_swapchain_images(VkDevice device, VkSwapchainKHR swapchain, lv_image_set_s *images)
 {
-	vkGetSwapchainImagesKHR(ldevice, swapchain, &images->count, NULL);
+	vkGetSwapchainImagesKHR(device, swapchain, &images->count, NULL);
 
 	images->images = malloc(sizeof(VkImage) * images->count);
-	return (vkGetSwapchainImagesKHR(ldevice, swapchain, &images->count, images->images) == VK_SUCCESS);
+	return (vkGetSwapchainImagesKHR(device, swapchain, &images->count, images->images) == VK_SUCCESS);
 }
 
 static VkResult
@@ -498,7 +499,7 @@ int lv_create_swapchain_imageviews(lv_state_s *lv)
 {
 	lv->swapchain_images.views = malloc(sizeof(VkImageView) * lv->swapchain_images.count);
 
-	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(lv->pdevice, lv->surface, 0);
+	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(lv->gpu, lv->surface, 0);
 
 	int created = 0;
 	for (int i = 0; i < lv->swapchain_images.count; ++i)
@@ -506,7 +507,7 @@ int lv_create_swapchain_imageviews(lv_state_s *lv)
 		VkImage      image     =  lv->swapchain_images.images[i];
 		VkImageView *imageview = &lv->swapchain_images.views[i];
 
-		if (lv_create_imageview(lv->ldevice, image, format, imageview) == VK_SUCCESS)
+		if (lv_create_imageview(lv->device, image, format, imageview) == VK_SUCCESS)
 		{
 			++created;
 		}
@@ -616,7 +617,7 @@ int lv_device_autoselect(lv_state_s *lv)
 		if (score > device_score && has_gqueue && has_pqueue && chain_ok)
 		{
 			device_score = score;
-			lv->pdevice = devices[i];
+			lv->gpu = devices[i];
 			lv->gqueue.index = gqueue_index;
 			lv->pqueue.index = pqueue_index;
 			break;
@@ -624,12 +625,9 @@ int lv_device_autoselect(lv_state_s *lv)
 	}
 
 	free(devices);
-	return lv->pdevice != VK_NULL_HANDLE;
+	return lv->gpu != VK_NULL_HANDLE;
 }
 
-
-//int lv_logical_device_create(VkDevice *ldevice, VkPhysicalDevice *pdevice, 
-//		lv_queue_s *gqueue, lv_queue_s *pqueue, lv_name_set_s *extensions)
 int lv_logical_device_create(lv_state_s *lv, lv_name_set_s *extensions)
 {
 	lv->gqueue.priority = 1.0f;
@@ -650,13 +648,13 @@ int lv_logical_device_create(lv_state_s *lv, lv_name_set_s *extensions)
 	device_info.enabledExtensionCount = extensions->count;
 	device_info.ppEnabledExtensionNames = extensions->names;
 
-	if (vkCreateDevice(lv->pdevice, &device_info, NULL, &lv->ldevice) != VK_SUCCESS)
+	if (vkCreateDevice(lv->gpu, &device_info, NULL, &lv->device) != VK_SUCCESS)
 	{
 		return 0;
 	}
 
-	vkGetDeviceQueue(lv->ldevice, lv->gqueue.index, 0, &lv->gqueue.queue);
-	vkGetDeviceQueue(lv->ldevice, lv->pqueue.index, 0, &lv->pqueue.queue);
+	vkGetDeviceQueue(lv->device, lv->gqueue.index, 0, &lv->gqueue.queue);
+	vkGetDeviceQueue(lv->device, lv->pqueue.index, 0, &lv->pqueue.queue);
 
 	return lv->gqueue.queue != VK_NULL_HANDLE && lv->pqueue.queue != VK_NULL_HANDLE;
 }
@@ -707,17 +705,17 @@ int lv_load_shader_spv(const char* path, lv_shader_s *shader)
  * TODO figure out if we can safely free the shader->data once it's 
  *      been turned into a VkShaderModule handle?
  */
-int lv_shader_module_create(VkDevice ldevice, lv_shader_s *shader)
+int lv_shader_module_create(VkDevice device, lv_shader_s *shader)
 {
 	VkShaderModuleCreateInfo info = { 0 };
 	info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	info.codeSize = shader->size;
 	info.pCode    = shader->data;
 
-	return vkCreateShaderModule(ldevice, &info, NULL, &shader->module) == VK_SUCCESS;
+	return vkCreateShaderModule(device, &info, NULL, &shader->module) == VK_SUCCESS;
 }
 
-int lv_shader_stage_create(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurfaceKHR surface, lv_shader_s *vert_shader, lv_shader_s *frag_shader)
+int lv_shader_stage_create(VkPhysicalDevice gpu, VkDevice device, VkSurfaceKHR surface, lv_shader_s *vert_shader, lv_shader_s *frag_shader)
 {
 	VkPipelineShaderStageCreateInfo vert_info = { 0 };
 	vert_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -731,13 +729,13 @@ int lv_shader_stage_create(VkPhysicalDevice pdevice, VkDevice ldevice, VkSurface
 	frag_info.module = frag_shader->module;
 	frag_info.pName = "main";
 
-	vert_shader->stage_info = vert_info;
-	frag_shader->stage_info = frag_info;
+	vert_shader->info = vert_info;
+	frag_shader->info = frag_info;
 
 	return 1;
 }
 
-int lv_shader_from_file_spv(VkDevice ldevice, const char *path, lv_shader_s *shader, lv_shader_type_e type)
+int lv_shader_from_file_spv(VkDevice device, const char *path, lv_shader_s *shader, lv_shader_type_e type)
 {
 	if (lv_load_shader_spv(path, shader) == 0)
 	{
@@ -746,7 +744,7 @@ int lv_shader_from_file_spv(VkDevice ldevice, const char *path, lv_shader_s *sha
 
 	shader->type = type;
 
-	if (lv_shader_module_create(ldevice, shader) == 0)
+	if (lv_shader_module_create(device, shader) == 0)
 	{
 		return 0;
 	}
@@ -757,7 +755,7 @@ int lv_shader_from_file_spv(VkDevice ldevice, const char *path, lv_shader_s *sha
 // https://vulkan-tutorial.com/en/Drawing_a_triangle/Graphics_pipeline_basics/Render_passes
 int lv_renderpass_create(lv_state_s *lv)
 {
-	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(lv->pdevice, lv->surface, 0);
+	VkSurfaceFormatKHR format = lv_device_surface_get_format_by_index(lv->gpu, lv->surface, 0);
 
 	VkAttachmentDescription colorAttachment = { 0 };
 	colorAttachment.format         = format.format;
@@ -795,7 +793,7 @@ int lv_renderpass_create(lv_state_s *lv)
 	renderPassInfo.dependencyCount = 1;
 	renderPassInfo.pDependencies   = &dependency;
 
-	return vkCreateRenderPass(lv->ldevice, &renderPassInfo, NULL, &lv->render_pass) == VK_SUCCESS;
+	return vkCreateRenderPass(lv->device, &renderPassInfo, NULL, &lv->render_pass) == VK_SUCCESS;
 }
 
 // https://vulkan-tutorial.com/en/Drawing_a_triangle/Graphics_pipeline_basics/Fixed_functions
@@ -818,7 +816,7 @@ int lv_pipeline_create(lv_state_s *lv)
 	inputAssembly.primitiveRestartEnable = VK_FALSE;
 
 	// 
-	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->pdevice, lv->surface);
+	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->gpu, lv->surface);
 
 	// A viewport basically describes the region of the framebuffer that 
 	// the output will be rendered to. This will almost always be (0, 0) 
@@ -910,15 +908,15 @@ int lv_pipeline_create(lv_state_s *lv)
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo = { 0 };
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 
-	if (vkCreatePipelineLayout(lv->ldevice, &pipelineLayoutInfo, NULL, &lv->pipeline_layout) != VK_SUCCESS)
+	if (vkCreatePipelineLayout(lv->device, &pipelineLayoutInfo, NULL, &lv->pipeline_layout) != VK_SUCCESS)
 	{
 		return 0;
 	}
 
 	const VkPipelineShaderStageCreateInfo shaderStages[] =
 	{
-		lv->vert_shader.stage_info,
-		lv->frag_shader.stage_info
+		lv->vert_shader.info,
+		lv->frag_shader.info
 	};
 	
 	VkGraphicsPipelineCreateInfo pipelineInfo = {};
@@ -935,7 +933,7 @@ int lv_pipeline_create(lv_state_s *lv)
 	pipelineInfo.renderPass          = lv->render_pass;
 	pipelineInfo.subpass             = 0;
 
-	if (vkCreateGraphicsPipelines(lv->ldevice, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &lv->pipeline) != VK_SUCCESS)
+	if (vkCreateGraphicsPipelines(lv->device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &lv->pipeline) != VK_SUCCESS)
 	{
 		return 0;
 	}
@@ -962,14 +960,14 @@ lv_create_framebuffer(VkDevice device, VkRenderPass renderpass, VkImageView view
 
 int lv_create_framebuffers(lv_state_s *lv)
 {
-	lv->framebuffers.count   = lv->swapchain_images.count;
-	lv->framebuffers.buffers = malloc(sizeof(VkFramebuffer) * lv->framebuffers.count);
-	if (lv->framebuffers.buffers == NULL)
+	lv->framebuffers.count = lv->swapchain_images.count;
+	lv->framebuffers.fbs   = malloc(sizeof(VkFramebuffer) * lv->framebuffers.count);
+	if (lv->framebuffers.fbs == NULL)
 	{
 		return 0;
 	}
 
-	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->pdevice, lv->surface);
+	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->gpu, lv->surface);
 
 	VkExtent2D     extent = caps.currentExtent;
 	VkImageView    view = 0;
@@ -978,13 +976,14 @@ int lv_create_framebuffers(lv_state_s *lv)
 	for (size_t i = 0; i < lv->framebuffers.count; ++i)
 	{
 		view =  lv->swapchain_images.views[i];
-		fb   = &lv->framebuffers.buffers[i];
+		fb   = &lv->framebuffers.fbs[i];
 
-		if (lv_create_framebuffer(lv->ldevice, lv->render_pass, view, extent, fb) != VK_SUCCESS)
+		if (lv_create_framebuffer(lv->device, lv->render_pass, view, extent, fb) != VK_SUCCESS)
 		{
 			return 0;
 		}
 	}
+
 	return 1;
 }
 
@@ -995,7 +994,7 @@ int lv_create_commandpool(lv_state_s *lv)
 	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	poolInfo.queueFamilyIndex = lv->gqueue.index;
 
-	if (vkCreateCommandPool(lv->ldevice, &poolInfo, NULL, &lv->commandpool) != VK_SUCCESS)
+	if (vkCreateCommandPool(lv->device, &poolInfo, NULL, &lv->commandpool) != VK_SUCCESS)
 	{
 		return 0;
 	}
@@ -1006,31 +1005,58 @@ int lv_create_commandpool(lv_state_s *lv)
 // https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Command_buffers
 int lv_create_commandbuffers(lv_state_s *lv)
 {
-	lv->commandbuffers.count   = lv->swapchain_images.count;
-	lv->commandbuffers.buffers = malloc(sizeof(VkCommandBuffer) * lv->commandbuffers.count);
-	if (lv->commandbuffers.buffers == NULL)
+	lv->commandbuffers.count = lv->swapchain_images.count;
+	lv->commandbuffers.cbs   = malloc(sizeof(VkCommandBuffer) * lv->commandbuffers.count);
+	if (lv->commandbuffers.cbs == NULL)
 	{
 		return 0;
 	}
 
-	VkCommandBufferAllocateInfo allocInfo = { 0 };
-	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	allocInfo.commandPool        = lv->commandpool;
-	allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	allocInfo.commandBufferCount = (uint32_t) lv->commandbuffers.count;
+	VkCommandBufferAllocateInfo cba_info = { 0 };
+	cba_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	cba_info.commandPool        = lv->commandpool;
+	cba_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	cba_info.commandBufferCount = (uint32_t) lv->commandbuffers.count;
 
-	if (vkAllocateCommandBuffers(lv->ldevice, &allocInfo, lv->commandbuffers.buffers) != VK_SUCCESS)
+	if (vkAllocateCommandBuffers(lv->device, &cba_info, lv->commandbuffers.cbs) != VK_SUCCESS)
 	{
 		return 0;
 	}
 
+	VkCommandBufferBeginInfo cbb_info = { 0 };
+	cbb_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-	for (size_t i = 0; i < lv->commandbuffers.count; ++i)
+	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->gpu, lv->surface);
+	VkClearValue clear_color = { 0.0f, 0.0f, 0.0f, 1.0f };
+	VkOffset2D offset = { 0, 0 };
+
+	VkRenderPassBeginInfo rp_info = { 0 };
+	rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	rp_info.renderPass        = lv->render_pass;
+	rp_info.renderArea.offset = offset;
+	rp_info.renderArea.extent = caps.currentExtent;
+	rp_info.clearValueCount   = 1;
+	rp_info.pClearValues      = &clear_color;
+
+	for (uint32_t i = 0; i < lv->commandbuffers.count; ++i)
 	{
-		VkCommandBufferBeginInfo beginInfo = { 0 };
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		if (vkBeginCommandBuffer(lv->commandbuffers.cbs[i], &cbb_info) != VK_SUCCESS)
+		{
+			return 0;
+		}
 
-		if (vkBeginCommandBuffer(lv->commandbuffers.buffers[i], &beginInfo) != VK_SUCCESS)
+		rp_info.framebuffer = lv->framebuffers.fbs[i];
+	
+		vkCmdBeginRenderPass(lv->commandbuffers.cbs[i], &rp_info, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdBindPipeline(lv->commandbuffers.cbs[i], VK_PIPELINE_BIND_POINT_GRAPHICS, lv->pipeline);
+		//                                   .----------- vertexCount
+		//                                   |  .-------- instanceCount
+		//                                   |  |  .----- firstVertex
+		//                                   |  |  |  .-- firstInstance
+		//                                   |  |  |  |
+		vkCmdDraw(lv->commandbuffers.cbs[i], 3, 1, 0, 0);
+		vkCmdEndRenderPass(lv->commandbuffers.cbs[i]);
+		if (vkEndCommandBuffer(lv->commandbuffers.cbs[i]) != VK_SUCCESS)
 		{
 			return 0;
 		}
@@ -1038,47 +1064,21 @@ int lv_create_commandbuffers(lv_state_s *lv)
 	
 	// TODO
 	
-	VkSurfaceCapabilitiesKHR caps = lv_device_surface_get_capabilities(lv->pdevice, lv->surface);
-	VkClearValue clearColor = { 0.0f, 0.0f, 0.0f, 1.0f };
-	VkOffset2D offset = { 0, 0 };
-
-	for (size_t i = 0; i < lv->swapchain_images.count; ++i)
-	{
-		VkRenderPassBeginInfo renderPassInfo = { 0 };
-		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		renderPassInfo.renderPass        = lv->render_pass;
-		renderPassInfo.framebuffer       = lv->framebuffers.buffers[i];
-		renderPassInfo.renderArea.offset = offset;
-		renderPassInfo.renderArea.extent = caps.currentExtent;
-		renderPassInfo.clearValueCount   = 1;
-		renderPassInfo.pClearValues      = &clearColor;
-
-		// TODO does this all belong here, even? the tutorial doesn't have it in a loop...
-		vkCmdBeginRenderPass(lv->commandbuffers.buffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-		vkCmdBindPipeline(lv->commandbuffers.buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, lv->pipeline);
-		vkCmdDraw(lv->commandbuffers.buffers[i], 3, 1, 0, 0);
-		vkCmdEndRenderPass(lv->commandbuffers.buffers[i]);
-		if (vkEndCommandBuffer(lv->commandbuffers.buffers[i]) != VK_SUCCESS)
-		{
-			return 0;
-		}
-	}
-	
 	return 1;
 }
 
 // https://vulkan-tutorial.com/en/Drawing_a_triangle/Drawing/Rendering_and_presentation 
 int lv_create_semaphores(lv_state_s *lv)
 {
-	VkSemaphoreCreateInfo semaphoreInfo = { 0 };
-	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	VkSemaphoreCreateInfo info = { 0 };
+	info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-	if (vkCreateSemaphore(lv->ldevice, &semaphoreInfo, NULL, &lv->image_available) != VK_SUCCESS)
+	if (vkCreateSemaphore(lv->device, &info, NULL, &lv->image_available) != VK_SUCCESS)
 	{
 		return 0;
 	}
 	
-	if (vkCreateSemaphore(lv->ldevice, &semaphoreInfo, NULL, &lv->render_finished) != VK_SUCCESS)
+	if (vkCreateSemaphore(lv->device, &info, NULL, &lv->render_finished) != VK_SUCCESS)
        	{
 		return 0;
 	}
@@ -1089,7 +1089,7 @@ int lv_create_semaphores(lv_state_s *lv)
 int lv_draw_frame(lv_state_s *lv)
 {
 	uint32_t image_index;
-	vkAcquireNextImageKHR(lv->ldevice, lv->swapchain, UINT64_MAX, lv->image_available, VK_NULL_HANDLE, &image_index);
+	vkAcquireNextImageKHR(lv->device, lv->swapchain, UINT64_MAX, lv->image_available, VK_NULL_HANDLE, &image_index);
 
 	VkSemaphore sem_wait[]   = { lv->image_available };
 	VkSemaphore sem_signal[] = { lv->render_finished };
@@ -1102,7 +1102,7 @@ int lv_draw_frame(lv_state_s *lv)
 	submit_info.pWaitSemaphores      = sem_wait;
 	submit_info.pWaitDstStageMask    = wait_stages;
 	submit_info.commandBufferCount   = 1; // `lv->commandbuffers.count` = segfault (why?)
-	submit_info.pCommandBuffers      = &lv->commandbuffers.buffers[image_index];
+	submit_info.pCommandBuffers      = &lv->commandbuffers.cbs[image_index];
 	submit_info.signalSemaphoreCount = 1;
 	submit_info.pSignalSemaphores    = sem_signal;
 
@@ -1132,27 +1132,25 @@ int lv_draw_frame(lv_state_s *lv)
 
 int lv_free(lv_state_s *lv)
 {
-	// TODO free all the other things, too
-
-	vkDestroySwapchainKHR(lv->ldevice, lv->swapchain, NULL);
+	vkDestroySwapchainKHR(lv->device, lv->swapchain, NULL);
 	vkDestroySurfaceKHR(lv->instance, lv->surface, NULL);
 	for (int i = 0; i < lv->framebuffers.count; ++i)
 	{
-		vkDestroyFramebuffer(lv->ldevice, lv->framebuffers.buffers[i], NULL);
+		vkDestroyFramebuffer(lv->device, lv->framebuffers.fbs[i], NULL);
 	}
-	vkDestroyCommandPool(lv->ldevice, lv->commandpool, NULL);
+	vkDestroyCommandPool(lv->device, lv->commandpool, NULL);
 	for (int i = 0; i < lv->swapchain_images.count; ++i)
 	{
-		vkDestroyImageView(lv->ldevice, lv->swapchain_images.views[i], NULL);
+		vkDestroyImageView(lv->device, lv->swapchain_images.views[i], NULL);
 	}
-	vkDestroySemaphore(lv->ldevice, lv->image_available, NULL);
-	vkDestroySemaphore(lv->ldevice, lv->render_finished, NULL);
-	vkDestroyPipelineLayout(lv->ldevice, lv->pipeline_layout, NULL);
-	vkDestroyRenderPass(lv->ldevice, lv->render_pass, NULL);
-	vkDestroyPipeline(lv->ldevice, lv->pipeline, NULL);
-	vkDestroyShaderModule(lv->ldevice, lv->frag_shader.module, NULL);
-	vkDestroyShaderModule(lv->ldevice, lv->vert_shader.module, NULL);
-	vkDestroyDevice(lv->ldevice, NULL);
+	vkDestroySemaphore(lv->device, lv->image_available, NULL);
+	vkDestroySemaphore(lv->device, lv->render_finished, NULL);
+	vkDestroyPipelineLayout(lv->device, lv->pipeline_layout, NULL);
+	vkDestroyRenderPass(lv->device, lv->render_pass, NULL);
+	vkDestroyPipeline(lv->device, lv->pipeline, NULL);
+	vkDestroyShaderModule(lv->device, lv->frag_shader.module, NULL);
+	vkDestroyShaderModule(lv->device, lv->vert_shader.module, NULL);
+	vkDestroyDevice(lv->device, NULL);
 	vkDestroyInstance(lv->instance, NULL);
 
 	return 1;
